@@ -78,6 +78,15 @@ export default {
           await store.setItem("pin_next", r);
           return json({ ok: true, pinned: `${r.manga_title} · ${r.chapter_label} · p.${r.page_first}–${r.page_second}`, view: r.view });
         }
+        case "/notify": {
+          // Gọi ngay sau khi deploy để bot nhắn change log liền (cần mã khoá)
+          const cfg = (await store.getItem("config")) || {};
+          if (!cfg.accessKey || url.searchParams.get("key") !== cfg.accessKey) return json({ ok: false, error: "forbidden" }, 403);
+          const token = await botToken(env, store);
+          const before = cfg.notifiedVersion || "";
+          await notifyNewVersion(store, token);
+          return json({ ok: true, version: VERSION, notified: before !== VERSION });
+        }
         case "/version":
           return json({ version: VERSION });
         case "/favicon.ico":

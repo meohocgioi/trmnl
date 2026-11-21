@@ -1,5 +1,5 @@
 // Bot Telegram: chỉ chủ bot điều khiển được
-import { VERSION, CHANGELOG } from "./version.js";
+import { VERSION, CHANGELOG, GITHUB_REPO } from "./version.js";
 import {
   AUTO_AUTHOR,
   DEFAULT_SETTINGS,
@@ -24,6 +24,7 @@ export const COMMANDS = [
   ["random", "Ngẫu nhiên toàn bộ MangaDex"],
   ["settings", "Xem & chỉnh cài đặt"],
   ["url", "Link dán vào TRMNL + link xem thử"],
+  ["update", "Cập nhật bot / kiểm tra bản mới"],
   ["version", "Phiên bản & change log"],
   ["help", "Danh sách lệnh"],
 ];
@@ -153,6 +154,8 @@ async function onMessage(msg, env) {
     }
     case "version":
       return send(token, chatId, versionText());
+    case "update":
+      return updateCmd(env, chatId);
     default:
       return send(token, chatId, card("🤔", "Không hiểu lệnh này", hint("Gõ /help để xem danh sách lệnh.")));
   }
@@ -530,7 +533,7 @@ function settingsKeyboard(s) {
 const HELP_GROUPS = [
   ["🖼", "Xem truyện", ["now", "new"]],
   ["📚", "Chọn nguồn truyện", ["search", "title", "author", "auto", "random"]],
-  ["⚙️", "Cài đặt & thông tin", ["settings", "url", "version", "help"]],
+  ["⚙️", "Cài đặt & thông tin", ["settings", "url", "update", "version", "help"]],
 ];
 
 function helpBody() {
@@ -563,12 +566,73 @@ function versionText() {
   return card("ℹ️", `Phiên bản v${VERSION}`, hint(`Change log · ${latest.date}`), changesQuote(latest), olderBlock);
 }
 
+/* ---------- /update ---------- */
+
+const cmpVer = (a, b) => {
+  const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  return 0;
+};
+
+// Đọc số phiên bản mới nhất trên GitHub (repo công khai) – best effort
+async function githubVersion() {
+  try {
+    const res = await fetch(`https://raw.githubusercontent.com/${GITHUB_REPO}/main/src/version.js?t=${Date.now()}`, {
+      cf: { cacheTtl: 0 },
+      headers: { "Cache-Control": "no-cache" },
+    });
+    if (!res.ok) return null;
+    const m = (await res.text()).match(/VERSION\s*=\s*"([\d.]+)"/);
+    return m ? m[1] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function refreshCommands(token) {
+  await tg(token, "setMyCommands", { commands: COMMANDS.map(([command, description]) => ({ command, description })) }).catch(() => {});
+}
+
+async function updateCmd(env, chatId) {
+  const { token, store } = env;
+  await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+  await refreshCommands(token);
+  const config = (await store.getItem("config")) || {};
+  config.notifiedVersion = VERSION; // đã báo trong tin này → cron không nhắn trùng
+  await store.setItem("config", config);
+  const latest = await githubVersion();
+  if (latest && cmpVer(latest, VERSION) > 0) {
+    return send(
+      token,
+      chatId,
+      card(
+        "⏳",
+        `Có bản v${latest} trên GitHub`,
+        quote([kv("🟢 Đang chạy", "v" + VERSION), kv("🆕 Trên GitHub", "v" + latest)]),
+        hint("Cloudflare đang build bản mới, thường mất 1–2 phút. Bot sẽ tự nhắn change log ngay khi xong (không cần làm gì).")
+      )
+    );
+  }
+  const latestLog = CHANGELOG[0];
+  return send(
+    token,
+    chatId,
+    card(
+      "✅",
+      `Bot đang chạy bản mới nhất v${VERSION}`,
+      hint(`Change log · ${latestLog.date}`),
+      changesQuote(latestLog),
+      hint("Menu lệnh đã được làm mới. Nếu chưa thấy lệnh mới trong menu ☰, thoát khung chat rồi mở lại.")
+    )
+  );
+}
+
 // Sau khi Cloudflare triển khai bản mới: nhắn change log + cập nhật menu lệnh
 export async function notifyNewVersion(store, token) {
   const config = (await store.getItem("config")) || {};
   if (!token || !config.ownerId || config.notifiedVersion === VERSION) return;
   config.notifiedVersion = VERSION;
   await store.setItem("config", config);
-  await tg(token, "setMyCommands", { commands: COMMANDS.map(([command, description]) => ({ command, description })) }).catch(() => {});
+  await refreshCommands(token);
   await send(token, config.ownerId, changelogText(CHANGELOG[0]));
 }

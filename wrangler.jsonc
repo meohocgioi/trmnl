@@ -13,7 +13,7 @@
     "bindings": [{ "name": "STORE", "class_name": "Store" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Store"] }],
-  // Mỗi 30 phút kiểm tra có bản mới không để nhắn change log
-  "triggers": { "crons": ["*/30 * * * *"] },
+  // Mỗi phút kiểm tra có bản mới không → nhắn change log + làm mới menu lệnh ngay
+  "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true }
 }

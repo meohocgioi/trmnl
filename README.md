@@ -6,7 +6,7 @@ Hiện **2 trang truyện liên tiếp** (ví dụ 11 & 12) lấy ngẫu nhiên 
 - Chế độ **ngẫu nhiên**: bất kỳ truyện nào trên MangaDex.
 - Hiển thị **1–2 ô truyện** (mặc định – ưu tiên 1 ô nếu đủ lấp màn hình, không thì 2 ô liền nhau), **2 ô**, hoặc **2 trang**. Đổi trong `/settings`.
 - Chạy trên **Cloudflare Workers** (miễn phí). Không cần VPS, không chạy gì trên máy bạn.
-- Mỗi lần code mới được đẩy lên repo này, Cloudflare **tự cập nhật** và bot **nhắn change log** cho bạn.
+- Mỗi lần code mới được đẩy lên repo này, Cloudflare **tự cập nhật** (1–2 phút) và bot **nhắn change log** cho bạn trong vòng ~1 phút sau đó. Gõ `/update` để kiểm tra ngay.
 
 ---
 
@@ -47,6 +47,7 @@ Xong! 🎉
 | `/random` | Ngẫu nhiên toàn bộ MangaDex |
 | `/settings` | Chỉnh nội dung (safe/suggestive…), hướng đọc, chất lượng ảnh bằng nút bấm |
 | `/url` | Link dán vào TRMNL + link xem thử |
+| `/update` | Làm mới menu lệnh + kiểm tra bản mới trên GitHub |
 | `/version` | Phiên bản & change log |
 
 Dưới mỗi cặp trang có nút: **🎲 Cặp khác** · **▶️ 2 trang tiếp** · **📌 Lên TRMNL lần tới** (cặp này sẽ hiện ở lần làm mới tiếp theo của TRMNL).
