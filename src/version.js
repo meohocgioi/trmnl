@@ -1,8 +1,19 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.3.1";
+export const VERSION = "1.4.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.4.0",
+    date: "2026-11-21",
+    changes: [
+      "🔎 /search: chọn 📖 Title hoặc ✍️ Author rồi gõ từ khoá",
+      "Kết quả 10 mục/trang, chuyển trang bằng ◀️ 1/10 ▶️",
+      "Chạm 1 kết quả → TRMNL chuyển sang bộ truyện / tác giả đó (giữ kiểu hiển thị 1–2 ô)",
+      "Lối tắt: /title Dragon · /author Akira",
+      "/settings có thêm nút 🔎 Tìm…",
+    ],
+  },
   {
     version: "1.3.1",
     date: "2026-11-21",

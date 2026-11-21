@@ -40,9 +40,11 @@ Xong! 🎉
 |---|---|
 | `/now` | Xem 2 trang đang hiện trên TRMNL |
 | `/new` | Random 2 trang mới |
+| `/search` | Tìm truyện: chọn 📖 Title hoặc ✍️ Author, gõ từ khoá, chạm kết quả → TRMNL chuyển sang |
+| `/title Tên` | Tìm nhanh theo tên truyện, ví dụ `/title Dragon` |
+| `/author Tên` | Tìm nhanh theo tác giả, ví dụ `/author Akira` |
 | `/auto` | Chỉ truyện Junji Ito |
 | `/random` | Ngẫu nhiên toàn bộ MangaDex |
-| `/author Tên` | Chỉ truyện của 1 tác giả, ví dụ `/author Kentaro Miura` |
 | `/settings` | Chỉnh nội dung (safe/suggestive…), hướng đọc, chất lượng ảnh bằng nút bấm |
 | `/url` | Link dán vào TRMNL + link xem thử |
 | `/version` | Phiên bản & change log |

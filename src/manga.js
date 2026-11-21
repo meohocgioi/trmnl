@@ -48,7 +48,16 @@ export function mergeOptions(settings, params) {
   if (mode === "random") author = "";
   if (p.get("author")) author = p.get("author").trim();
   author = author.slice(0, 60);
-  return { ratings, lang, quality, dir, longStrip, author, view };
+  // Chọn chính xác từ /search: mã tác giả / mã bộ truyện (bỏ qua nếu URL đổi chế độ)
+  let authorId = s.authorId || "";
+  let mangaId = s.mangaId || "";
+  const mangaTitle = s.mangaTitle || "";
+  if (mode === "auto" || mode === "random" || p.get("author")) {
+    authorId = "";
+    mangaId = "";
+  }
+  if (p.get("manga") && isUuid(p.get("manga"))) mangaId = p.get("manga");
+  return { ratings, lang, quality, dir, longStrip, author, view, authorId, mangaId, mangaTitle };
 }
 
 /* ------------------------------------------------------------------ */
@@ -57,9 +66,14 @@ export function mergeOptions(settings, params) {
 
 export async function pickPages(o, origin, store) {
   let lastError = null;
-  const byAuthor = o.author ? await authorMangaList(o, store) : null;
+  // Chế độ 1 bộ truyện (chọn từ /search title)
+  const single = o.mangaId ? compactManga((await api(`/manga/${o.mangaId}`)).data) : null;
+  if (single && single.langs && !single.langs.includes(o.lang)) {
+    throw new Error(`"${single.title}" không có bản ${o.lang.toUpperCase()} trên MangaDex`);
+  }
+  const byAuthor = !single && o.author ? await authorMangaList(o, store) : null;
   let pool = byAuthor ? byAuthor.mangas.filter((m) => !byAuthor.dead.includes(m.id)) : null;
-  const maxAttempts = byAuthor ? 15 : MAX_ATTEMPTS;
+  const maxAttempts = single ? 4 : byAuthor ? 15 : MAX_ATTEMPTS;
   let deadChanged = false;
   if (pool && !pool.length) {
     // Bộ nào cũng từng "rỗng" → có thể MangaDex lỗi tạm thời, thử lại từ đầu
@@ -73,7 +87,9 @@ export async function pickPages(o, origin, store) {
       if (attempt > 1) await sleep(250); // tôn trọng rate limit ~5 req/s
       try {
         let manga;
-        if (pool) {
+        if (single) {
+          manga = single;
+        } else if (pool) {
           if (!pool.length) break;
           manga = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
         } else {
@@ -81,7 +97,7 @@ export async function pickPages(o, origin, store) {
           manga = compactManga(res.data);
           if (manga.langs && !manga.langs.includes(o.lang)) continue;
         }
-        if (!o.longStrip && manga.longStrip) continue;
+        if (!single && !o.longStrip && manga.longStrip) continue;
 
         const chapter = await randomChapter(manga.id, o);
         if (!chapter) {
@@ -115,6 +131,8 @@ export async function pickPages(o, origin, store) {
   throw new Error(
     lastError
       ? `Không lấy được trang truyện: ${lastError.message}`
+      : single
+      ? `"${single.title}" chưa có chương ${o.lang.toUpperCase()} đọc được trên MangaDex (có thể chỉ có link ngoài)`
       : o.author
       ? `Chưa tìm được chương ${o.lang.toUpperCase()} đọc được của ${o.author} – sẽ thử bộ khác ở lần sau`
       : `Không tìm được chương phù hợp sau ${maxAttempts} lần thử`
@@ -146,7 +164,7 @@ function buildResult(meta, home, i, o, origin, attempts) {
   const [left, right] = direction === "rtl" ? [second, first] : [first, second];
   return {
     ok: true,
-    mode: o.author ? (o.author === AUTO_AUTHOR ? "auto" : "author") : "random",
+    mode: o.mangaId ? "title" : o.author ? (o.author === AUTO_AUTHOR ? "auto" : "author") : "random",
     author: meta.author || "",
     author_titles: meta.authorTitles || 0,
     manga_id: manga.id,
@@ -266,12 +284,14 @@ async function resolveAuthorIds(name) {
 }
 
 export async function authorMangaList(o, store, { force = false } = {}) {
-  const key = `author:${normName(o.author)}|${o.lang}|${o.ratings.join(",")}`;
+  const key = `author:${o.authorId || normName(o.author)}|${o.lang}|${o.ratings.join(",")}`;
   if (!force && store) {
     const hit = await store.getItem(key);
     if (hit && Date.now() - hit.at < AUTHOR_CACHE_MS && hit.mangas && hit.mangas.length) return hit;
   }
-  const { ids, authorName } = await resolveAuthorIds(o.author);
+  const { ids, authorName } = o.authorId
+    ? { ids: [o.authorId], authorName: o.author || (await getAuthor(o.authorId)).name }
+    : await resolveAuthorIds(o.author);
   const seen = new Map();
   for (const id of ids) {
     for (let offset = 0; offset < 500; offset += 100) {
@@ -298,6 +318,66 @@ export async function authorMangaList(o, store, { force = false } = {}) {
   const entry = { key, at: Date.now(), authorName, mangas, dead: [] };
   if (store) await store.setItem(key, entry);
   return entry;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tìm kiếm (lệnh /search trên Telegram) — 10 kết quả mỗi trang         */
+/* ------------------------------------------------------------------ */
+
+export const SEARCH_PAGE = 10;
+const MAX_RESULTS = 10000; // MangaDex: offset + limit <= 10000
+
+export async function searchTitles(q, page, o) {
+  const base = [
+    ["title", q],
+    ["limit", String(SEARCH_PAGE)],
+    ["offset", String((page - 1) * SEARCH_PAGE)],
+    ["includes[]", "author"],
+    ["order[relevance]", "desc"],
+    ...o.ratings.map((r) => ["contentRating[]", r]),
+  ];
+  let res;
+  try {
+    res = await api("/manga", [...base, ["availableTranslatedLanguage[]", o.lang]]);
+  } catch (e) {
+    if (e.status !== 400) throw e;
+    res = await api("/manga", base.filter(([k]) => k !== "order[relevance]"));
+  }
+  const total = Math.min(Number(res.total) || 0, MAX_RESULTS);
+  const items = (res.data || []).map((m) => {
+    const c = compactManga(m);
+    const a = m.attributes || {};
+    const authors = [...new Set((m.relationships || []).filter((r) => r.type === "author").map((r) => r.attributes && r.attributes.name).filter(Boolean))];
+    return { id: m.id, title: c.title, year: a.year || "", status: a.status || "", authors: authors.join(", ") };
+  });
+  return { total, pages: Math.max(1, Math.ceil(total / SEARCH_PAGE)), items };
+}
+
+export async function searchAuthors(q, page) {
+  const base = [["name", q], ["limit", String(SEARCH_PAGE)], ["offset", String((page - 1) * SEARCH_PAGE)]];
+  let res;
+  try {
+    res = await api("/author", [...base, ["order[name]", "asc"]]);
+  } catch (e) {
+    if (e.status !== 400) throw e;
+    res = await api("/author", base);
+  }
+  const total = Math.min(Number(res.total) || 0, MAX_RESULTS);
+  const items = (res.data || []).map((x) => ({
+    id: x.id,
+    name: (x.attributes && x.attributes.name) || "?",
+    works: (x.relationships || []).filter((r) => r.type === "manga").length,
+  }));
+  return { total, pages: Math.max(1, Math.ceil(total / SEARCH_PAGE)), items };
+}
+
+export async function getManga(id) {
+  return compactManga((await api(`/manga/${id}`)).data);
+}
+
+export async function getAuthor(id) {
+  const x = (await api(`/author/${id}`)).data;
+  return { id: x.id, name: (x.attributes && x.attributes.name) || "?" };
 }
 
 function compactManga(m) {

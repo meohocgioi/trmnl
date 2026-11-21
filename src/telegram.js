@@ -8,14 +8,20 @@ import {
   nextPages,
   authorMangaList,
   isUuid,
+  searchTitles,
+  searchAuthors,
+  getManga,
+  getAuthor,
 } from "./manga.js";
 
 export const COMMANDS = [
   ["now", "2 trang đang hiện trên TRMNL"],
   ["new", "Random 2 trang mới"],
+  ["search", "Tìm truyện theo tên hoặc tác giả"],
+  ["title", "Tìm theo tên truyện: /title Dragon"],
+  ["author", "Tìm theo tác giả: /author Akira"],
   ["auto", "Chế độ auto: chỉ truyện Junji Ito"],
   ["random", "Ngẫu nhiên toàn bộ MangaDex"],
-  ["author", "Chỉ lấy truyện của 1 tác giả: /author Tên"],
   ["settings", "Xem & chỉnh cài đặt"],
   ["url", "Link dán vào TRMNL + link xem thử"],
   ["version", "Phiên bản & change log"],
@@ -83,7 +89,27 @@ async function onMessage(msg, env) {
 
   const settings = { ...DEFAULT_SETTINGS, ...((await store.getItem("settings")) || {}) };
 
+  // Tin nhắn thường (không phải lệnh) → nếu đang chờ từ khoá tìm kiếm thì tìm luôn
+  if (!cmd) {
+    const aw = await store.getItem("await_search");
+    if (aw && text && Date.now() - aw.at < 15 * 60 * 1000) {
+      await store.deleteItem("await_search");
+      return doSearch(env, chatId, aw.type, text.slice(0, 80), 1, settings);
+    }
+    return send(token, chatId, card("💡", "Bạn muốn tìm truyện?", hint("Gõ /search rồi chọn Title hoặc Author.")), searchStartKeyboard());
+  }
+  await store.deleteItem("await_search");
+
   switch (cmd) {
+    case "search":
+      return send(
+        token,
+        chatId,
+        card("🔎", "Tìm truyện cho TRMNL", quote(["📖 <b>Title</b> — tìm theo tên truyện", "✍️ <b>Author</b> — tìm theo tác giả"]), hint("Chọn một kiểu tìm bên dưới.")),
+        searchStartKeyboard()
+      );
+    case "title":
+      return arg ? doSearch(env, chatId, "t", arg.slice(0, 80), 1, settings) : askQuery(env, chatId, "t");
     case "start":
     case "help":
       return send(token, chatId, helpText(settings));
@@ -96,36 +122,17 @@ async function onMessage(msg, env) {
     case "new":
       return newPick(env, chatId, settings);
     case "auto":
+      clearPick(settings);
       settings.author = AUTO_AUTHOR;
       await store.setItem("settings", settings);
       return send(token, chatId, settingsText(settings, "✅", `Đã chuyển sang Auto – ${AUTO_AUTHOR}`), settingsKeyboard(settings));
     case "random":
+      clearPick(settings);
       settings.author = "";
       await store.setItem("settings", settings);
       return send(token, chatId, settingsText(settings, "✅", "Đã chuyển sang Ngẫu nhiên toàn bộ"), settingsKeyboard(settings));
-    case "author": {
-      if (!arg) return send(token, chatId, card("✍️", "Chọn tác giả", quote(["Gõ kèm tên tác giả, ví dụ:", "<code>/author Kentaro Miura</code>"]), hint("Gõ /auto để quay lại Junji Ito.")));
-      await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" });
-      try {
-        const o = mergeOptions({ ...settings, author: arg.slice(0, 60) });
-        const list = await authorMangaList(o, store, { force: true });
-        settings.author = arg.slice(0, 60);
-        await store.setItem("settings", settings);
-        return send(
-          token,
-          chatId,
-          card(
-            "✅",
-            "Đã chọn tác giả",
-            quote([kv("✍️ Tác giả", esc(list.authorName)), kv("📚 Số bộ có bản " + o.lang.toUpperCase(), list.mangas.length)]),
-            settingsBody(settings)
-          ),
-          settingsKeyboard(settings)
-        );
-      } catch (e) {
-        return send(token, chatId, errorCard("Không chọn được tác giả", e.message, "Kiểm tra lại chính tả tên tác giả (tiếng Anh/romaji)."));
-      }
-    }
+    case "author":
+      return arg ? doSearch(env, chatId, "a", arg.slice(0, 80), 1, settings) : askQuery(env, chatId, "a");
     case "settings":
     case "status":
       return send(token, chatId, settingsText(settings), settingsKeyboard(settings));
@@ -161,6 +168,36 @@ async function onCallback(cq, env) {
   const settings = { ...DEFAULT_SETTINGS, ...((await store.getItem("settings")) || {}) };
   const ack = (text) => tg(token, "answerCallbackQuery", { callback_query_id: cq.id, text }).catch(() => {});
 
+  if (data === "noop") return ack("");
+  if (data === "srch") {
+    await ack("");
+    return send(token, chatId, card("🔎", "Tìm truyện cho TRMNL", hint("Chọn một kiểu tìm bên dưới.")), searchStartKeyboard());
+  }
+  const q = data.match(/^q:([ta])$/);
+  if (q) {
+    await ack("");
+    return askQuery(env, chatId, q[1]);
+  }
+  const sp = data.match(/^sp:(\d+)$/);
+  if (sp) {
+    const last = await store.getItem("search_last");
+    if (!last) return ack("Tìm lại nhé – kết quả cũ đã hết hạn");
+    await ack(`Trang ${sp[1]}`);
+    return doSearch(env, chatId, last.type, last.q, Number(sp[1]), settings, cq.message.message_id);
+  }
+  const sel = data.match(/^sel:([ma]):([0-9a-f-]{36})$/);
+  if (sel && isUuid(sel[2])) {
+    await ack("⏳ Đang chuẩn bị cho TRMNL…");
+    return selectResult(env, chatId, sel[1], sel[2], settings);
+  }
+  const pv = data.match(/^pv:([0-9a-f-]{36})$/);
+  if (pv && isUuid(pv[1])) {
+    const r = await store.getItem(`pick:${pv[1]}`);
+    if (!r) return ack("Không còn bản xem trước");
+    await ack("");
+    return sendPick(env, chatId, r, "📌 <b>Sẽ hiện trên TRMNL ở lần làm mới tới</b>");
+  }
+
   if (data === "new") {
     await ack("🎲 Đang random…");
     return newPick(env, chatId, settings);
@@ -191,7 +228,10 @@ async function onCallback(cq, env) {
   const set = data.match(/^set:(\w+):([\w,]+)$/);
   if (set) {
     const [, key, val] = set;
-    if (key === "m") settings.author = val === "auto" ? AUTO_AUTHOR : "";
+    if (key === "m") {
+      clearPick(settings);
+      settings.author = val === "auto" ? AUTO_AUTHOR : "";
+    }
     if (key === "r") settings.ratings = val.split(",").filter((x) => DEFAULT_SETTINGS.ratings.concat(["erotica"]).includes(x));
     if (key === "d" && ["auto", "rtl", "ltr"].includes(val)) settings.dir = val;
     if (key === "q" && ["data", "data-saver"].includes(val)) settings.quality = val;
@@ -214,6 +254,145 @@ async function onCallback(cq, env) {
 }
 
 /* ------------------------------------------------------------------ */
+
+/* ---------- Tìm kiếm ---------- */
+
+const TYPE_NAME = { t: "tên truyện", a: "tác giả" };
+const STATUS_VI = { ongoing: "đang ra", completed: "hoàn thành", hiatus: "tạm ngưng", cancelled: "đã huỷ" };
+const short = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
+
+function clearPick(s) {
+  delete s.mangaId;
+  delete s.mangaTitle;
+  delete s.authorId;
+}
+
+function searchStartKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "📖 Title", callback_data: "q:t" },
+        { text: "✍️ Author", callback_data: "q:a" },
+      ],
+    ],
+  };
+}
+
+async function askQuery(env, chatId, type) {
+  await env.store.setItem("await_search", { type, at: Date.now() });
+  return tg(env.token, "sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text: card(type === "t" ? "📖" : "✍️", `Tìm theo ${TYPE_NAME[type]}`, hint(type === "t" ? "Gõ tên truyện, ví dụ: Dragon" : "Gõ tên tác giả, ví dụ: Akira")),
+    reply_markup: { force_reply: true, input_field_placeholder: type === "t" ? "Tên truyện…" : "Tên tác giả…" },
+  });
+}
+
+async function doSearch(env, chatId, type, q, page, settings, editId) {
+  const { token, store } = env;
+  if (!editId) await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+  let res;
+  try {
+    res = type === "t" ? await searchTitles(q, page, mergeOptions(settings)) : await searchAuthors(q, page);
+  } catch (e) {
+    return send(token, chatId, errorCard("Không tìm được", e.message, "Thử lại sau ít phút."));
+  }
+  await store.setItem("search_last", { type, q, at: Date.now() });
+  const head = type === "t" ? "📖" : "✍️";
+  if (!res.items.length) {
+    const text = card("🔎", `Không tìm thấy “${esc(q)}”`, hint(`Không có ${TYPE_NAME[type]} nào khớp. Thử từ khoá khác hoặc viết theo romaji (vd: Itou Junji).`));
+    return send(token, chatId, text, searchStartKeyboard());
+  }
+  const n0 = (page - 1) * 10;
+  const lines = res.items.map((it, i) => {
+    const n = n0 + i + 1;
+    if (type === "t") {
+      const meta = [it.authors && "✍️ " + esc(short(it.authors, 40)), it.year, STATUS_VI[it.status] || it.status].filter(Boolean).join(" · ");
+      return `<b>${n}.</b> ${esc(it.title)}` + (meta ? `\n      <i>${meta}</i>` : "");
+    }
+    return `<b>${n}.</b> ${esc(it.name)}` + (it.works ? ` · <i>${it.works} tác phẩm</i>` : "");
+  });
+  const text = card(
+    "🔎",
+    `Kết quả cho “${esc(q)}”`,
+    hint(`${head} Tìm theo ${TYPE_NAME[type]} · ${res.total} kết quả · trang ${page}/${res.pages}`),
+    quote(lines),
+    hint("Chạm vào kết quả để hiện lên TRMNL.")
+  );
+  const rows = res.items.map((it, i) => [
+    { text: `${n0 + i + 1}. ${short(type === "t" ? it.title : it.name, 34)}`, callback_data: `sel:${type === "t" ? "m" : "a"}:${it.id}` },
+  ]);
+  if (res.pages > 1) {
+    rows.push([
+      page > 1 ? { text: "◀️ Trước", callback_data: `sp:${page - 1}` } : { text: "·", callback_data: "noop" },
+      { text: `${page}/${res.pages}`, callback_data: "noop" },
+      page < res.pages ? { text: "Sau ▶️", callback_data: `sp:${page + 1}` } : { text: "·", callback_data: "noop" },
+    ]);
+  }
+  rows.push([
+    { text: "📖 Tìm title khác", callback_data: "q:t" },
+    { text: "✍️ Tìm author khác", callback_data: "q:a" },
+  ]);
+  const markup = { inline_keyboard: rows };
+  if (editId) {
+    return tg(token, "editMessageText", { chat_id: chatId, message_id: editId, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: markup }).catch(() => {});
+  }
+  return send(token, chatId, text, markup);
+}
+
+// Chọn 1 kết quả → lưu cài đặt + xếp sẵn 2 trang cho lần làm mới TRMNL tới
+async function selectResult(env, chatId, kind, id, settings) {
+  const { token, store } = env;
+  await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+  const next = { ...settings };
+  clearPick(next);
+  let label;
+  let extra = [];
+  try {
+    if (kind === "m") {
+      const m = await getManga(id);
+      next.mangaId = id;
+      next.mangaTitle = m.title;
+      label = kv("📖 Truyện", esc(m.title));
+    } else {
+      const a = await getAuthor(id);
+      next.author = a.name;
+      next.authorId = id;
+      const list = await authorMangaList(mergeOptions(next), store, { force: true });
+      label = kv("✍️ Tác giả", esc(a.name));
+      extra = [kv("📚 Số bộ có bản " + next.lang.toUpperCase(), list.mangas.length)];
+    }
+    const r = await pickPages(mergeOptions(next), env.origin, store); // kiểm tra có trang đọc được
+    await store.setItem("settings", next);
+    await store.setItem("pin_next", r);
+    await store.setItem(`pick:${r.chapter_id}`, r);
+    return send(
+      token,
+      chatId,
+      card(
+        "✅",
+        "Đã chọn cho TRMNL",
+        quote([label, ...extra]),
+        quote([`📌 Lần làm mới tới: <b>${esc(r.manga_title)}</b>`, `${esc(r.chapter_label)} · trang ${r.page_first}–${r.page_second}`]),
+        hint("Bấm nút sau lưng TRMNL để xem ngay. Các lần sau vẫn lấy ngẫu nhiên từ lựa chọn này.")
+      ),
+      {
+        inline_keyboard: [
+          [
+            { text: "👀 Xem trước", callback_data: `pv:${r.chapter_id}` },
+            { text: "🔎 Tìm lại", callback_data: "srch" },
+          ],
+          [
+            { text: "✍️ Về Junji Ito", callback_data: "set:m:auto" },
+            { text: "🎲 Ngẫu nhiên", callback_data: "set:m:random" },
+          ],
+        ],
+      }
+    );
+  } catch (e) {
+    return send(token, chatId, errorCard("Chưa dùng được lựa chọn này", e.message, "Cài đặt cũ vẫn giữ nguyên. Thử chọn kết quả khác."), searchStartKeyboard());
+  }
+}
 
 async function newPick(env, chatId, settings) {
   const { token } = env;
@@ -280,8 +459,14 @@ function pickKeyboard(r) {
   return { inline_keyboard: rows };
 }
 
+function sourceName(s) {
+  if (s.mangaId) return `Bộ truyện – ${esc(s.mangaTitle || "?")}`;
+  if (s.author) return s.author === AUTO_AUTHOR ? `Auto – ${AUTO_AUTHOR}` : `Tác giả – ${esc(s.author)}`;
+  return "Ngẫu nhiên toàn bộ";
+}
+
 function settingsBody(s) {
-  const mode = s.author ? (s.author === AUTO_AUTHOR ? `Auto – ${AUTO_AUTHOR}` : `Tác giả – ${esc(s.author)}`) : "Ngẫu nhiên toàn bộ";
+  const mode = sourceName(s);
   const dir = { auto: "Tự động", rtl: "Phải → trái", ltr: "Trái → phải" }[s.dir] || s.dir;
   const quality = effectiveView(s) !== "pages" ? "Gốc (tự động)" : s.quality === "data" ? "Gốc" : "Nhẹ";
   return [
@@ -315,8 +500,9 @@ function settingsKeyboard(s) {
         { text: on(effectiveView(s) === "pages", "📖 2 trang"), callback_data: "set:v:pages" },
       ],
       [
-        { text: on(s.author === AUTO_AUTHOR, "✍️ Junji Ito"), callback_data: "set:m:auto" },
-        { text: on(!s.author, "🎲 Ngẫu nhiên"), callback_data: "set:m:random" },
+        { text: on(!s.mangaId && s.author === AUTO_AUTHOR, "✍️ Junji Ito"), callback_data: "set:m:auto" },
+        { text: on(!s.mangaId && !s.author, "🎲 Ngẫu nhiên"), callback_data: "set:m:random" },
+        { text: on(!!s.mangaId || (!!s.author && s.author !== AUTO_AUTHOR), "🔎 Tìm…"), callback_data: "srch" },
       ],
       [
         { text: on(r === "safe", "🟢 Safe"), callback_data: "set:r:safe" },
@@ -343,7 +529,7 @@ function settingsKeyboard(s) {
 
 const HELP_GROUPS = [
   ["🖼", "Xem truyện", ["now", "new"]],
-  ["📚", "Chọn nguồn truyện", ["auto", "random", "author"]],
+  ["📚", "Chọn nguồn truyện", ["search", "title", "author", "auto", "random"]],
   ["⚙️", "Cài đặt & thông tin", ["settings", "url", "version", "help"]],
 ];
 
@@ -353,7 +539,7 @@ function helpBody() {
 }
 
 function helpText(s) {
-  const now = s ? quote([kv("Hiển thị", viewName(s)), kv("Nguồn", s.author ? esc(s.author) : "Ngẫu nhiên toàn bộ")]) : "";
+  const now = s ? quote([kv("Hiển thị", viewName(s)), kv("Nguồn", sourceName(s))]) : "";
   return card("📚", "TRMNL × MangaDex", hint(`Phiên bản v${VERSION}`) + (now ? "\n" + now : ""), helpBody());
 }
 
