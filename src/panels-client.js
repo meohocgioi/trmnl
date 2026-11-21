@@ -74,9 +74,32 @@ export function detectPanels(gray, w, h, rtl) {
     return segs;
   }
 
+  // Bóc khung viền đen bao quanh (vd: cả trang được đóng khung) để lộ khe trắng bên trong
+  function peel(r) {
+    let { x0, y0, x1, y1 } = r;
+    const maxY = Math.max(2, Math.round((y1 - y0) * 0.04));
+    const maxX = Math.max(2, Math.round((x1 - x0) * 0.04));
+    const full = (cnt, span) => cnt >= span * 0.85;
+    let k = 0;
+    while (k < maxY && y1 - y0 > 8 && full(rowInk(y0, x0, x1), x1 - x0)) { y0++; k++; }
+    k = 0;
+    while (k < maxY && y1 - y0 > 8 && full(rowInk(y1 - 1, x0, x1), x1 - x0)) { y1--; k++; }
+    k = 0;
+    while (k < maxX && x1 - x0 > 8 && full(colInk(x0, y0, y1), y1 - y0)) { x0++; k++; }
+    k = 0;
+    while (k < maxX && x1 - x0 > 8 && full(colInk(x1 - 1, y0, y1), y1 - y0)) { x1--; k++; }
+    return { x0, y0, x1, y1 };
+  }
+
   function split(r0, depth) {
-    const r = trim(r0);
+    let r = trim(r0);
     if (!r) return;
+    // Chỉ ở cấp trang: có khung bao cả trang → bóc khung, cắt lại phần trắng, tách bên trong
+    const pr = depth === 0 ? peel(r) : r;
+    if (pr.x0 !== r.x0 || pr.y0 !== r.y0 || pr.x1 !== r.x1 || pr.y1 !== r.y1) {
+      const inner = trim(pr);
+      if (inner && (inner.x1 - inner.x0) * (inner.y1 - inner.y0) > 0.5 * (r.x1 - r.x0) * (r.y1 - r.y0)) r = inner;
+    }
     if (depth > 7) return leaf(r);
     const bands = segments(r.y0, r.y1, (y) => rowEmpty(y, r.x0, r.x1)).filter(([a, b]) => b - a >= 3);
     if (bands.length > 1) {
