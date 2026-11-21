@@ -4,6 +4,7 @@ Hiện **2 trang truyện liên tiếp** (ví dụ 11 & 12) lấy ngẫu nhiên 
 
 - Chế độ **auto** (mặc định): chỉ truyện của **Junji Ito** – tự chọn bộ, chương, trang.
 - Chế độ **ngẫu nhiên**: bất kỳ truyện nào trên MangaDex.
+- Hiển thị **2 ô truyện liền nhau** (mặc định – tự tìm ô, phóng to kín màn hình) hoặc **2 trang**. Đổi trong `/settings`.
 - Chạy trên **Cloudflare Workers** (miễn phí). Không cần VPS, không chạy gì trên máy bạn.
 - Mỗi lần code mới được đẩy lên repo này, Cloudflare **tự cập nhật** và bot **nhắn change log** cho bạn.
 
@@ -56,6 +57,7 @@ Dưới mỗi cặp trang có nút: **🎲 Cặp khác** · **▶️ 2 trang ti�
 | `/preview?key=…` | Xem thử khung 800×480 trên trình duyệt |
 | `/setup` | Trang cài đặt bot / nối lại bot |
 | `/img` | Proxy ảnh (MangaDex không cho lấy ảnh trực tiếp) |
+| `/panels.js` | Script tìm & xếp ô truyện, chạy trong trình duyệt của TRMNL |
 
 Có thể thêm tham số vào URL để ghi đè cài đặt, ví dụ `&mode=random`, `&rating=safe`, `&dir=ltr`.
 
@@ -65,6 +67,9 @@ Có thể thêm tham số vào URL để ghi đè cài đặt, ví dụ `&mode=r
 - Sau khi cài bot, link TRMNL và `/preview` cần **mã khoá riêng** (`?key=…`) – người lạ đoán ra địa chỉ cũng không dùng được.
 - Lệnh Telegram chỉ nhận từ chủ bot; webhook có mã bí mật nên không giả mạo được.
 - Nên bật **xác minh 2 bước (2FA)** cho GitHub và Cloudflare.
+
+## Chế độ 2 ô truyện hoạt động thế nào?
+Script `/panels.js` chạy ngay trong TRMNL lúc vẽ màn hình: tìm các khe trắng giữa các ô, sắp ô theo thứ tự đọc (manga Nhật: phải → trái), chọn 2 ô liền nhau (có thể nối sang trang kế) và xếp ngang/dọc sao cho phủ kín màn hình nhất. Ô có bong bóng thoại đè lên khe sẽ được giữ chung một cụm. Nếu không tìm được ô, màn hình tự quay về hiện 2 trang.
 
 ## Gặp lỗi?
 - **Bot không trả lời** → mở `/setup` → bấm **Nối lại bot**.

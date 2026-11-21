@@ -67,6 +67,7 @@ ${owner}
 
 export function previewPage(d) {
   if (!d.ok) return shell("Preview", `<h1>Lỗi</h1><p class="err">${esc(d.error)}</p><p><a href="">Thử lại</a></p>`);
+  const order = (isLeft) => (isLeft === d.first_on_left ? 1 : 2);
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TRMNL × MangaDex preview</title>
@@ -74,25 +75,27 @@ export function previewPage(d) {
   body{margin:0;padding:24px;background:#ddd;font-family:system-ui,sans-serif}
   .frame{width:800px;height:480px;background:#fff;display:flex;flex-direction:column;
     border:1px solid #999;box-sizing:border-box;padding:8px;gap:6px;filter:grayscale(1)}
-  .pages{flex:1;display:flex;gap:8px;min-height:0}
-  .pages div{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
-  .pages img{max-width:100%;max-height:100%;object-fit:contain}
+  #mdx-root{flex:1;display:flex;gap:8px;min-height:0}
+  .pg{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
+  .pg img{max-width:100%;max-height:100%;object-fit:contain}
   .bar{display:flex;justify-content:space-between;font-size:13px;border-top:2px solid #000;padding-top:4px}
   .meta{margin-top:12px;font-size:14px;line-height:1.6}
 </style></head><body>
 <div class="frame">
-  <div class="pages">
-    <div><img src="${esc(d.left_image)}" alt="page ${d.left_page}"></div>
-    <div><img src="${esc(d.right_image)}" alt="page ${d.right_page}"></div>
+  <div id="mdx-root" data-view="${esc(d.view)}" data-seed="${d.panel_seed}" data-dir="${esc(d.direction)}">
+    <div class="pg"><img crossorigin="anonymous" data-order="${order(true)}" src="${esc(d.left_image)}" alt="page ${d.left_page}"></div>
+    <div class="pg"><img crossorigin="anonymous" data-order="${order(false)}" src="${esc(d.right_image)}" alt="page ${d.right_page}"></div>
   </div>
   <div class="bar"><b>${esc(d.manga_title)}</b>
-    <span>${esc(d.chapter_label)} · p.${d.page_first}–${d.page_second}/${d.pages_total} · ${esc(d.credit)}</span></div>
+    <span><span id="mdx-panels"></span>${esc(d.chapter_label)} · p.${d.page_first}–${d.page_second}/${d.pages_total} · ${esc(d.credit)}</span></div>
 </div>
 <div class="meta">
-  ${d.author ? `Tác giả: <b>${esc(d.author)}</b> (${d.author_titles} bộ) · ` : ""}
-  Hướng đọc: <b>${d.direction === "rtl" ? "phải → trái (manga Nhật)" : "trái → phải"}</b> ·
+  Chế độ: <b>${d.view === "panels" ? "2 ô truyện" : "2 trang"}</b> ·
+  ${d.author ? `Tác giả: <b>${esc(d.author)}</b> · ` : ""}
+  Hướng đọc: <b>${d.direction === "rtl" ? "phải → trái" : "trái → phải"}</b> ·
   <a href="${esc(d.chapter_url)}" target="_blank">Mở chương trên MangaDex</a> ·
   <a href="">Random lại</a>
 </div>
+<script src="${esc(d.script_url)}"></script>
 </body></html>`;
 }

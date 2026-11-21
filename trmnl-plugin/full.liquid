@@ -1,17 +1,19 @@
 {% if ok %}
-<div class="layout layout--row" style="width: 100%; gap: 8px; align-items: stretch;">
+{% if first_on_left %}{% assign lo = 1 %}{% assign ro = 2 %}{% else %}{% assign lo = 2 %}{% assign ro = 1 %}{% endif %}
+<div id="mdx-root" class="layout layout--row" data-view="{{ view | default: 'pages' }}" data-seed="{{ panel_seed }}" data-dir="{{ direction }}" style="width: 100%; gap: 8px; align-items: stretch;">
   <div style="flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
-    <img class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ left_image }}" alt="page {{ left_page }}">
+    <img crossorigin="anonymous" data-order="{{ lo }}" class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ left_image }}" alt="page {{ left_page }}">
   </div>
   <div style="flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
-    <img class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ right_image }}" alt="page {{ right_page }}">
+    <img crossorigin="anonymous" data-order="{{ ro }}" class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ right_image }}" alt="page {{ right_page }}">
   </div>
 </div>
 
 <div class="title_bar">
   <span class="title">{{ manga_title | truncate: 42 }}</span>
-  <span class="instance">{{ chapter_label }} · p.{{ page_first }}–{{ page_second }}/{{ pages_total }} · {{ credit | truncate: 32 }}</span>
+  <span class="instance"><span id="mdx-panels"></span>{{ chapter_label }} · p.{{ page_first }}–{{ page_second }}/{{ pages_total }} · {{ credit | truncate: 32 }}</span>
 </div>
+{% if script_url %}<script src="{{ script_url }}"></script>{% endif %}
 {% else %}
 <div class="layout layout--col layout--center">
   <span class="title">MangaDex</span>

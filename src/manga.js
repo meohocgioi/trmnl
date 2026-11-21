@@ -12,7 +12,8 @@ export const DEFAULT_SETTINGS = {
   author: AUTO_AUTHOR, // "" = ngẫu nhiên toàn bộ MangaDex
   ratings: ["safe", "suggestive"],
   dir: "auto", // auto | rtl | ltr
-  quality: "data-saver", // data-saver | data
+  quality: "data-saver", // data-saver | data  (chế độ ô truyện luôn dùng ảnh gốc)
+  view: "panels", // panels = 2 ô truyện liền nhau | pages = 2 trang
   lang: "en",
   longStrip: false,
 };
@@ -31,7 +32,9 @@ export function mergeOptions(settings, params) {
   }
   const langRaw = (p.get("lang") || s.lang || "en").trim();
   const lang = /^[a-z]{2}(-[a-z]{2})?$/i.test(langRaw) ? langRaw.toLowerCase() : "en";
-  const quality = (p.get("quality") || s.quality) === "data" ? "data" : "data-saver";
+  const view = (p.get("view") || s.view) === "pages" ? "pages" : "panels";
+  // Ô truyện được phóng to → cần ảnh gốc cho nét
+  const quality = view === "panels" || (p.get("quality") || s.quality) === "data" ? "data" : "data-saver";
   const dirRaw = p.get("dir") || s.dir;
   const dir = ["rtl", "ltr"].includes(dirRaw) ? dirRaw : "auto";
   const longStrip = p.has("longstrip") ? p.get("longstrip") === "1" : !!s.longStrip;
@@ -41,7 +44,7 @@ export function mergeOptions(settings, params) {
   if (mode === "random") author = "";
   if (p.get("author")) author = p.get("author").trim();
   author = author.slice(0, 60);
-  return { ratings, lang, quality, dir, longStrip, author };
+  return { ratings, lang, quality, dir, longStrip, author, view };
 }
 
 /* ------------------------------------------------------------------ */
@@ -96,7 +99,7 @@ export async function pickPages(o, origin, store) {
           author: byAuthor ? byAuthor.authorName : "",
           authorTitles: byAuthor ? byAuthor.mangas.length : 0,
         };
-        return buildResult(meta, home, files, i, o, origin, attempt);
+        return buildResult(meta, home, i, o, origin, attempt);
       } catch (err) {
         lastError = err;
         if (err.status === 429 || err.status === 403) break; // bị giới hạn → dừng ngay
@@ -120,21 +123,19 @@ export async function nextPages(prev, o, origin) {
   const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
   const i = prev.page_second; // index 0-based của trang sau trang thứ 2
   if (!Array.isArray(files) || i + 1 >= files.length) return null; // hết chương
-  return buildResult(prev._meta, home, files, i, o, origin, 0);
+  return buildResult(prev._meta, home, i, o, origin, 0);
 }
 
-function buildResult(meta, home, files, i, o, origin, attempts) {
+function buildResult(meta, home, i, o, origin, attempts) {
   const { manga, chapter } = meta;
-  const imgUrl = (idx) =>
-    `${origin}/img?` +
-    new URLSearchParams({
-      ch: chapter.id,
-      p: String(idx),
-      q: o.quality,
-      b: home.baseUrl,
-      h: home.chapter.hash,
-      f: files[idx],
-    }).toString();
+  const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
+  const imgUrl = (idx, q = o.quality) => {
+    const list = q === "data" ? home.chapter.data : home.chapter.dataSaver;
+    return (
+      `${origin}/img?` +
+      new URLSearchParams({ ch: chapter.id, p: String(idx), q, b: home.baseUrl, h: home.chapter.hash, f: list[idx] }).toString()
+    );
+  };
   const first = { page: i + 1, image: imgUrl(i) };
   const second = { page: i + 2, image: imgUrl(i + 1) };
   const direction = o.dir !== "auto" ? o.dir : manga.orig === "ja" ? "rtl" : "ltr";
@@ -160,6 +161,13 @@ function buildResult(meta, home, files, i, o, origin, attempts) {
     page_second: second.page,
     first_image: first.image,
     second_image: second.image,
+    // Ảnh nhẹ cho Telegram (giới hạn 5MB/ảnh)
+    tg_first_image: imgUrl(i, "data-saver"),
+    tg_second_image: imgUrl(i + 1, "data-saver"),
+    view: o.view,
+    panel_seed: Math.floor(Math.random() * 1e9),
+    script_url: `${origin}/panels.js?v=${VERSION}`,
+    first_on_left: direction !== "rtl",
     direction,
     left_image: left.image,
     left_page: left.page,
@@ -321,14 +329,12 @@ export async function handleImage(url, ctx) {
 async function fetchImage(imageUrl, ctx) {
   const started = Date.now();
   let res = null;
-  let body = null;
   try {
     res = await fetch(imageUrl, { headers: { "User-Agent": UA } });
-    if (res.ok) body = await res.arrayBuffer();
   } catch (_) {
     res = null;
   }
-  const ok = !!(res && res.ok && body);
+  const ok = !!(res && res.ok && res.body);
   // MangaDex yêu cầu báo cáo kết quả tải ảnh từ các node MangaDex@Home
   let host = "";
   try {
@@ -342,13 +348,15 @@ async function fetchImage(imageUrl, ctx) {
         url: imageUrl,
         success: ok,
         cached: !!(res && (res.headers.get("X-Cache") || "").startsWith("HIT")),
-        bytes: body ? body.byteLength : 0,
+        bytes: ok ? Number(res.headers.get("Content-Length")) || 0 : 0,
         duration: Date.now() - started,
       }),
     }).catch(() => {});
     if (ctx && ctx.waitUntil) ctx.waitUntil(report);
   }
-  return { ok, status: res ? res.status : 0, body, type: res ? res.headers.get("Content-Type") : null };
+  if (res && !ok && res.body) res.body.cancel().catch(() => {});
+  // Trả thẳng luồng ảnh (không đọc hết vào bộ nhớ) → nhẹ CPU với ảnh gốc vài MB
+  return { ok, status: res ? res.status : 0, body: ok ? res.body : null, type: res ? res.headers.get("Content-Type") : null };
 }
 
 function isAllowedBase(b) {

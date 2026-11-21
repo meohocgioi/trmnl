@@ -1,8 +1,19 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.0.1";
+export const VERSION = "1.1.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.1.0",
+    date: "2026-11-21",
+    changes: [
+      "🔍 Chế độ mới: 2 Ô TRUYỆN liền nhau (mặc định) – tự tìm ô, phóng to kín màn hình TRMNL",
+      "Tự xếp 2 ô ngang hoặc dọc, ưu tiên cặp phủ kín ≥ 72% màn hình",
+      "Ô truyện dùng ảnh gốc của MangaDex cho nét hơn",
+      "/settings → chọn 🔍 2 ô truyện hoặc 📖 2 trang",
+      "⚠️ Cần thay markup plugin TRMNL 1 lần (xem hướng dẫn)",
+    ],
+  },
   {
     version: "1.0.1",
     date: "2026-11-21",

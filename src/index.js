@@ -14,6 +14,7 @@ import { VERSION } from "./version.js";
 import { mergeOptions, pickPages, publicResult, handleImage } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
+import { buildClientScript } from "./panels-client.js";
 
 export class Store extends DurableObject {
   async getItem(key) {
@@ -57,6 +58,14 @@ export default {
           return await handleSetup(request, url, env, store);
         case "/tg":
           return await handleWebhook(request, url, env, ctx, store);
+        case "/panels.js":
+          return new Response(buildClientScript(), {
+            headers: {
+              "Content-Type": "application/javascript; charset=utf-8",
+              "Cache-Control": "public, max-age=300",
+              "Access-Control-Allow-Origin": "*",
+            },
+          });
         case "/version":
           return json({ version: VERSION });
         case "/favicon.ico":
