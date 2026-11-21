@@ -1,8 +1,13 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.1.1";
+export const VERSION = "1.1.2";
 
 export const CHANGELOG = [
+  {
+    version: "1.1.2",
+    date: "2026-11-21",
+    changes: ["Chế độ 2 ô: hiện trạng thái trên thanh tiêu đề (⏳ đang xử lý / ⚠ lỗi / ô x–y) để chẩn đoán"],
+  },
   {
     version: "1.1.1",
     date: "2026-11-21",

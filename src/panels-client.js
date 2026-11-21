@@ -121,6 +121,11 @@ export function layoutPair(a1, a2, W, H, gap) {
 export function clientMain() {
   const t0 = Date.now();
   const log = (...a) => console.log("[mdx +" + (Date.now() - t0) + "ms]", ...a);
+  // Ghi trạng thái lên thanh tiêu đề để thấy được ngay trên màn hình TRMNL
+  const status = (t) => {
+    const el = document.getElementById("mdx-panels");
+    if (el) el.textContent = t ? t + " · " : "";
+  };
   const root = document.getElementById("mdx-root");
   if (!root) return log("không thấy #mdx-root");
   if (root.dataset.done) return;
@@ -134,6 +139,7 @@ export function clientMain() {
   imgs = imgs.slice(0, 2);
   if (imgs.length < 2) return log("không đủ 2 ảnh trong #mdx-root");
   const srcs = imgs.map((im) => im.currentSrc || im.src);
+  status("⏳");
   log("bắt đầu", { rtl, seed, srcs: srcs.map((u) => u.slice(0, 80)) });
 
   const GAP = 8;
@@ -160,7 +166,10 @@ export function clientMain() {
     const all = [];
     pages.forEach((pg, k) => pg.panels.forEach((r) => all.push({ k, r, aspectPage: pg.aspect })));
     log("tìm thấy", all.length, "ô", pages.map((p) => p.panels.length));
-    if (all.length < 2) return log("ít hơn 2 ô → giữ chế độ 2 trang");
+    if (all.length < 2) {
+      status("⚠ chỉ thấy " + all.length + " ô");
+      return log("ít hơn 2 ô → giữ chế độ 2 trang");
+    }
     const box = root.getBoundingClientRect();
     const aspect = (p) => (p.r.w / p.r.h) * p.aspectPage;
     const options = [];
@@ -246,7 +255,11 @@ export function clientMain() {
       return viaFetch();
     })
     .then(render)
-    .catch((e) => log("lỗi, giữ chế độ 2 trang:", String((e && e.message) || e)));
+    .catch((e) => {
+      const msg = String((e && e.message) || e);
+      status("⚠ " + msg.slice(0, 40));
+      log("lỗi, giữ chế độ 2 trang:", msg);
+    });
 }
 
 export function buildClientScript() {
