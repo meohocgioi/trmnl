@@ -119,91 +119,134 @@ export function layoutPair(a1, a2, W, H, gap) {
 }
 
 export function clientMain() {
+  const t0 = Date.now();
+  const log = (...a) => console.log("[mdx +" + (Date.now() - t0) + "ms]", ...a);
   const root = document.getElementById("mdx-root");
-  if (!root || root.dataset.view !== "panels" || root.dataset.done) return;
+  if (!root) return log("không thấy #mdx-root");
+  if (root.dataset.done) return;
+  if (root.dataset.view !== "panels") return log("chế độ 2 trang → giữ nguyên");
   const rtl = root.dataset.dir === "rtl";
   const seed = parseInt(root.dataset.seed || "0", 10) || 0;
-  const imgs = Array.prototype.slice
-    .call(root.querySelectorAll("img[data-order]"))
-    .sort((a, b) => Number(a.dataset.order) - Number(b.dataset.order));
-  if (imgs.length < 2) return;
+  // Lấy ảnh NGAY khi script chạy (trước khi framework TRMNL kịp đụng vào)
+  let imgs = Array.prototype.slice.call(root.querySelectorAll("img"));
+  if (imgs.every((im) => im.dataset.order)) imgs.sort((a, b) => Number(a.dataset.order) - Number(b.dataset.order));
+  else if (rtl) imgs.reverse();
+  imgs = imgs.slice(0, 2);
+  if (imgs.length < 2) return log("không đủ 2 ảnh trong #mdx-root");
+  const srcs = imgs.map((im) => im.currentSrc || im.src);
+  log("bắt đầu", { rtl, seed, srcs: srcs.map((u) => u.slice(0, 80)) });
 
-  const loaded = (img) =>
-    new Promise((resolve) => {
-      if (img.complete && img.naturalWidth) return resolve(true);
-      img.addEventListener("load", () => resolve(true), { once: true });
-      img.addEventListener("error", () => resolve(false), { once: true });
-    });
-  const timeout = new Promise((resolve) => setTimeout(() => resolve("timeout"), 20000));
+  const GAP = 8;
 
-  Promise.race([Promise.all(imgs.map(loaded)), timeout]).then((res) => {
-    if (res === "timeout" || res.indexOf(false) >= 0) return; // giữ nguyên chế độ cả trang
-    try {
-      const all = [];
-      imgs.forEach((img) => {
-        const AW = Math.min(600, img.naturalWidth);
-        const AH = Math.round((img.naturalHeight * AW) / img.naturalWidth);
-        const c = document.createElement("canvas");
-        c.width = AW;
-        c.height = AH;
-        const ctx = c.getContext("2d", { willReadFrequently: true });
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, AW, AH);
-        ctx.drawImage(img, 0, 0, AW, AH);
-        const px = ctx.getImageData(0, 0, AW, AH).data;
-        const gray = new Uint8Array(AW * AH);
-        for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
-          gray[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114) / 1000;
-        }
-        detectPanels(gray, AW, AH, rtl).forEach((r) => all.push({ img, r }));
-      });
-      if (all.length < 2) return;
+  // Phân tích 1 ảnh (img hoặc ImageBitmap) → danh sách ô
+  function analyze(source, natW, natH) {
+    const AW = Math.min(600, natW);
+    const AH = Math.round((natH * AW) / natW);
+    const c = document.createElement("canvas");
+    c.width = AW;
+    c.height = AH;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, AW, AH);
+    ctx.drawImage(source, 0, 0, AW, AH);
+    const px = ctx.getImageData(0, 0, AW, AH).data; // lỗi nếu ảnh bị chặn CORS
+    const gray = new Uint8Array(AW * AH);
+    for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114) / 1000;
+    return detectPanels(gray, AW, AH, rtl);
+  }
 
-      const box = root.getBoundingClientRect();
-      const GAP = 8;
-      const aspect = (p) => (p.r.w * p.img.naturalWidth) / (p.r.h * p.img.naturalHeight);
-      // Mọi cặp ô liền nhau → ưu tiên cặp phủ kín màn hình (>= 72%), chọn ngẫu nhiên theo seed
-      const options = [];
-      for (let k = 0; k + 1 < all.length; k++) {
-        options.push({ k, L: layoutPair(aspect(all[k]), aspect(all[k + 1]), box.width, box.height, GAP) });
-      }
-      const good = options.filter((o) => o.L.fill >= 0.72);
-      const pool = good.length ? good : [options.reduce((a, b) => (b.L.fill > a.L.fill ? b : a))];
-      const chosen = pool[seed % pool.length];
-      const i = chosen.k;
-      const L = chosen.L;
-      const pair = [all[i], all[i + 1]];
-
-      const wrap = document.createElement("div");
-      wrap.style.cssText =
-        "width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:" + GAP + "px;" +
-        "flex-direction:" + (L.mode === "row" ? (rtl ? "row-reverse" : "row") : "column");
-      pair.forEach((p, k) => {
-        const s = L.sizes[k];
-        const cell = document.createElement("div");
-        cell.style.cssText =
-          "position:relative;overflow:hidden;flex:none;width:" + Math.floor(s.w) + "px;height:" + Math.floor(s.h) + "px";
-        const im = p.img.cloneNode(false);
-        im.removeAttribute("data-order");
-        im.className = "image image-dither";
-        im.style.cssText = "position:absolute;height:auto;";
-        im.style.setProperty("width", 100 / p.r.w + "%", "important");
-        im.style.setProperty("max-width", "none", "important");
-        im.style.setProperty("max-height", "none", "important");
-        im.style.left = (-p.r.x / p.r.w) * 100 + "%";
-        im.style.top = (-p.r.y / p.r.h) * 100 + "%";
-        cell.appendChild(im);
-        wrap.appendChild(cell);
-      });
-      root.innerHTML = "";
-      root.appendChild(wrap);
-      root.dataset.done = "1";
-      const info = document.getElementById("mdx-panels");
-      if (info) info.textContent = "ô " + (i + 1) + "–" + (i + 2) + "/" + all.length + " · ";
-    } catch (e) {
-      console.log("mdx panels error", e); // ví dụ ảnh bị chặn CORS → giữ chế độ cả trang
+  function render(pages) {
+    // pages: [{ panels:[...], aspect: natW/natH }]
+    const all = [];
+    pages.forEach((pg, k) => pg.panels.forEach((r) => all.push({ k, r, aspectPage: pg.aspect })));
+    log("tìm thấy", all.length, "ô", pages.map((p) => p.panels.length));
+    if (all.length < 2) return log("ít hơn 2 ô → giữ chế độ 2 trang");
+    const box = root.getBoundingClientRect();
+    const aspect = (p) => (p.r.w / p.r.h) * p.aspectPage;
+    const options = [];
+    for (let k = 0; k + 1 < all.length; k++) {
+      options.push({ k, L: layoutPair(aspect(all[k]), aspect(all[k + 1]), box.width, box.height, GAP) });
     }
-  });
+    const good = options.filter((o) => o.L.fill >= 0.72);
+    const pool = good.length ? good : [options.reduce((a, b) => (b.L.fill > a.L.fill ? b : a))];
+    const chosen = pool[seed % pool.length];
+    const i = chosen.k;
+    const L = chosen.L;
+    const pair = [all[i], all[i + 1]];
+
+    const wrap = document.createElement("div");
+    wrap.style.cssText =
+      "width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:" + GAP + "px;" +
+      "flex-direction:" + (L.mode === "row" ? (rtl ? "row-reverse" : "row") : "column");
+    pair.forEach((p, n) => {
+      const sz = L.sizes[n];
+      const cell = document.createElement("div");
+      cell.style.cssText =
+        "position:relative;overflow:hidden;flex:none;width:" + Math.floor(sz.w) + "px;height:" + Math.floor(sz.h) + "px";
+      const im = document.createElement("img");
+      im.src = srcs[p.k];
+      im.setAttribute("crossorigin", "anonymous");
+      im.className = "image image-dither";
+      im.style.cssText = "position:absolute;height:auto;";
+      im.style.setProperty("width", 100 / p.r.w + "%", "important");
+      im.style.setProperty("max-width", "none", "important");
+      im.style.setProperty("max-height", "none", "important");
+      im.style.left = (-p.r.x / p.r.w) * 100 + "%";
+      im.style.top = (-p.r.y / p.r.h) * 100 + "%";
+      cell.appendChild(im);
+      wrap.appendChild(cell);
+    });
+    root.innerHTML = "";
+    root.appendChild(wrap);
+    root.dataset.done = "1";
+    const info = document.getElementById("mdx-panels");
+    if (info) info.textContent = "ô " + (i + 1) + "–" + (i + 2) + "/" + all.length + " · ";
+    log("xong: ô", i + 1, "–", i + 2, L.mode, "phủ", Math.round(L.fill * 100) + "%");
+  }
+
+  // Cách A: đọc thẳng từ ảnh đang hiện (nhanh nhất, xong trước khi trang load xong)
+  function viaImages() {
+    const loaded = (img) =>
+      new Promise((resolve) => {
+        if (img.complete) return resolve(!!img.naturalWidth); // đã xong (thành công hoặc lỗi)
+        img.addEventListener("load", () => resolve(true), { once: true });
+        img.addEventListener("error", () => resolve(false), { once: true });
+        setTimeout(() => resolve(false), 15000);
+      });
+    return Promise.all(imgs.map(loaded)).then((ok) => {
+      if (ok.indexOf(false) >= 0) throw new Error("ảnh không tải được / quá lâu");
+      log("ảnh đã tải", imgs.map((im) => im.naturalWidth + "x" + im.naturalHeight));
+      return imgs.map((im) => ({ panels: analyze(im, im.naturalWidth, im.naturalHeight), aspect: im.naturalWidth / im.naturalHeight }));
+    });
+  }
+
+  // Cách B: tự tải bản nhẹ (data-saver) qua fetch → không phụ thuộc thuộc tính CORS của thẻ img
+  function viaFetch() {
+    return Promise.all(
+      srcs.map((u) => {
+        const url = new URL(u);
+        url.searchParams.set("q", "data-saver");
+        ["b", "h", "f"].forEach((k) => url.searchParams.delete(k)); // Worker tự tra lại file bản nhẹ
+        return fetch(url.toString(), { mode: "cors" })
+          .then((r) => {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.blob();
+          })
+          .then((b) => createImageBitmap(b));
+      })
+    ).then((bms) => {
+      log("bản nhẹ đã tải", bms.map((b) => b.width + "x" + b.height));
+      return bms.map((b) => ({ panels: analyze(b, b.width, b.height), aspect: b.width / b.height }));
+    });
+  }
+
+  viaImages()
+    .catch((e) => {
+      log("cách A lỗi:", String((e && e.message) || e), "→ thử cách B");
+      return viaFetch();
+    })
+    .then(render)
+    .catch((e) => log("lỗi, giữ chế độ 2 trang:", String((e && e.message) || e)));
 }
 
 export function buildClientScript() {
@@ -212,6 +255,6 @@ export function buildClientScript() {
     detectPanels.toString() + "\n" +
     layoutPair.toString() + "\n" +
     clientMain.toString() + "\n" +
-    'if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", clientMain); else clientMain();\n'
+    'if (document.getElementById("mdx-root")) clientMain(); else document.addEventListener("DOMContentLoaded", clientMain);\n'
   );
 }
