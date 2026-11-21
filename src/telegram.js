@@ -39,6 +39,17 @@ export async function tg(token, method, body) {
 
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 
+/* ---------- Rich message: khuôn thẻ dùng chung cho mọi tin nhắn ---------- */
+// Thẻ = tiêu đề in đậm + các khối, cách nhau 1 dòng trống
+const card = (icon, title, ...blocks) => [`${icon} <b>${title}</b>`, ...blocks.filter(Boolean)].join("\n\n");
+// Khối trích dẫn (expandable = thu gọn, chạm để mở)
+const quote = (lines, expandable = false) =>
+  `<blockquote${expandable ? " expandable" : ""}>${[].concat(lines).filter(Boolean).join("\n")}</blockquote>`;
+// Dòng "nhãn: giá trị"
+const kv = (label, value) => `${label}: <b>${value}</b>`;
+const hint = (t) => `<i>${t}</i>`;
+const errorCard = (title, message, tip) => card("⚠️", title, quote(esc(message)), tip && hint(tip));
+
 /* ------------------------------------------------------------------ */
 
 export async function handleUpdate(update, { store, origin, token, ctx }) {
@@ -62,11 +73,11 @@ async function onMessage(msg, env) {
     config.ownerName = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ");
     config.notifiedVersion = VERSION;
     await store.setItem("config", config);
-    await send(token, chatId, `🎉 <b>Bạn đã là chủ bot.</b> Từ giờ chỉ bạn điều khiển được bot này.\n\n${helpText()}`);
+    await send(token, chatId, card("🎉", "Bạn đã là chủ bot", quote("Từ giờ chỉ bạn điều khiển được bot này."), helpBody()));
     return;
   }
   if (!config.ownerId || fromId !== config.ownerId) {
-    if (cmd === "start") await send(token, chatId, "🔒 Đây là bot riêng.");
+    if (cmd === "start") await send(token, chatId, card("🔒", "Bot riêng", quote("Bot này chỉ phục vụ chủ sở hữu.")));
     return;
   }
 
@@ -75,11 +86,11 @@ async function onMessage(msg, env) {
   switch (cmd) {
     case "start":
     case "help":
-      return send(token, chatId, helpText());
+      return send(token, chatId, helpText(settings));
     case "now": {
       const last = await store.getItem("last_trmnl");
-      if (last && last.ok) return sendPick(env, chatId, last, "📺 <i>Đang hiện trên TRMNL</i>");
-      await send(token, chatId, "TRMNL chưa lấy trang nào – mình random một cặp mới cho bạn:");
+      if (last && last.ok) return sendPick(env, chatId, last, "📺 <b>Đang hiện trên TRMNL</b>");
+      await send(token, chatId, card("📺", "TRMNL chưa lấy trang nào", hint("Mình random một cặp mới cho bạn…")));
       return newPick(env, chatId, settings);
     }
     case "new":
@@ -87,13 +98,13 @@ async function onMessage(msg, env) {
     case "auto":
       settings.author = AUTO_AUTHOR;
       await store.setItem("settings", settings);
-      return send(token, chatId, `✅ Chế độ <b>auto</b>: chỉ truyện của <b>${AUTO_AUTHOR}</b>.\n\n${settingsText(settings)}`, settingsKeyboard(settings));
+      return send(token, chatId, settingsText(settings, "✅", `Đã chuyển sang Auto – ${AUTO_AUTHOR}`), settingsKeyboard(settings));
     case "random":
       settings.author = "";
       await store.setItem("settings", settings);
-      return send(token, chatId, `✅ Chế độ <b>ngẫu nhiên</b> toàn bộ MangaDex.\n\n${settingsText(settings)}`, settingsKeyboard(settings));
+      return send(token, chatId, settingsText(settings, "✅", "Đã chuyển sang Ngẫu nhiên toàn bộ"), settingsKeyboard(settings));
     case "author": {
-      if (!arg) return send(token, chatId, "Gõ kèm tên tác giả, ví dụ:\n<code>/author Kentaro Miura</code>");
+      if (!arg) return send(token, chatId, card("✍️", "Chọn tác giả", quote(["Gõ kèm tên tác giả, ví dụ:", "<code>/author Kentaro Miura</code>"]), hint("Gõ /auto để quay lại Junji Ito.")));
       await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" });
       try {
         const o = mergeOptions({ ...settings, author: arg.slice(0, 60) });
@@ -103,11 +114,16 @@ async function onMessage(msg, env) {
         return send(
           token,
           chatId,
-          `✅ Tác giả: <b>${esc(list.authorName)}</b> – ${list.mangas.length} bộ có bản ${o.lang.toUpperCase()}.\n\n${settingsText(settings)}`,
+          card(
+            "✅",
+            "Đã chọn tác giả",
+            quote([kv("✍️ Tác giả", esc(list.authorName)), kv("📚 Số bộ có bản " + o.lang.toUpperCase(), list.mangas.length)]),
+            settingsBody(settings)
+          ),
           settingsKeyboard(settings)
         );
       } catch (e) {
-        return send(token, chatId, `⚠️ ${esc(e.message)}`);
+        return send(token, chatId, errorCard("Không chọn được tác giả", e.message, "Kiểm tra lại chính tả tên tác giả (tiếng Anh/romaji)."));
       }
     }
     case "settings":
@@ -118,13 +134,20 @@ async function onMessage(msg, env) {
       return send(
         token,
         chatId,
-        `📋 <b>Polling URL</b> (dán vào plugin TRMNL):\n<code>${esc(env.origin)}/${k}</code>\n\n👀 Xem thử trên trình duyệt:\n${esc(env.origin)}/preview${k}\n\n⚙️ Trang cài đặt:\n${esc(env.origin)}/setup\n\n🔒 <i>Link có mã khoá riêng – đừng chia sẻ công khai.</i>`
+        card(
+          "🔗",
+          "Liên kết của bạn",
+          quote(["📺 <b>Polling URL</b> – dán vào plugin TRMNL", `<code>${esc(env.origin)}/${k}</code>`]),
+          quote(["👀 <b>Xem thử</b> trên trình duyệt", `${esc(env.origin)}/preview${k}`]),
+          quote(["⚙️ <b>Trang cài đặt bot</b>", `${esc(env.origin)}/setup`]),
+          hint("🔒 Link có mã khoá riêng – đừng chia sẻ công khai. Chạm vào link để copy.")
+        )
       );
     }
     case "version":
-      return send(token, chatId, changelogText(CHANGELOG[0], true));
+      return send(token, chatId, versionText());
     default:
-      return send(token, chatId, "Không hiểu lệnh này. Gõ /help để xem danh sách lệnh.");
+      return send(token, chatId, card("🤔", "Không hiểu lệnh này", hint("Gõ /help để xem danh sách lệnh.")));
   }
 }
 
@@ -150,10 +173,10 @@ async function onCallback(cq, env) {
     await ack("▶️ Đang lấy 2 trang tiếp…");
     try {
       const next = await nextPages(prev, mergeOptions(settings), env.origin);
-      if (!next) return send(token, chatId, "📕 Hết chương rồi. Bấm 🎲 để random cặp khác.", pickKeyboard(null));
+      if (!next) return send(token, chatId, card("📕", "Hết chương rồi", hint("Bấm 🎲 để random cặp khác.")), pickKeyboard(null));
       return sendPick(env, chatId, next);
     } catch (e) {
-      return send(token, chatId, `⚠️ ${esc(e.message)}`);
+      return send(token, chatId, errorCard("Không lấy được 2 trang tiếp", e.message, "Bấm 🎲 để random cặp khác."), pickKeyboard(null));
     }
   }
 
@@ -199,22 +222,28 @@ async function newPick(env, chatId, settings) {
     const r = await pickPages(mergeOptions(settings), env.origin, env.store);
     return sendPick(env, chatId, r);
   } catch (e) {
-    return send(token, chatId, `⚠️ ${esc(e.message)}`, pickKeyboard(null));
+    return send(token, chatId, errorCard("Không lấy được trang truyện", e.message, "Bấm 🎲 để thử lại."), pickKeyboard(null));
   }
 }
 
 async function sendPick(env, chatId, r, header = "") {
   const { token, store } = env;
   await store.setItem(`pick:${r.chapter_id}`, r);
-  const caption =
-    (header ? header + "\n" : "") +
-    `<b>${esc(r.manga_title)}</b>\n` +
-    `${esc(r.chapter_label)} · trang ${r.page_first}–${r.page_second}/${r.pages_total}\n` +
-    (r.author ? `✍️ ${esc(r.author)}\n` : "") +
-    `${esc(r.credit)} · <a href="${esc(r.chapter_url)}">Mở trên MangaDex</a>` +
-    (r.direction === "rtl" ? "\n<i>Đọc phải → trái</i>" : "") +
-    (r.view === "panels" ? "\n🔍 <i>TRMNL hiện 2 ô truyện liền nhau trong 2 trang này</i>" : "") +
-    (r.view === "auto" ? "\n🔍 <i>TRMNL hiện 1–2 ô truyện trong 2 trang này</i>" : "");
+  const viewNote = { auto: "🔍 TRMNL hiện 1–2 ô trong 2 trang này", panels: "🔍 TRMNL hiện 2 ô liền nhau trong 2 trang này" }[r.view];
+  const caption = [
+    header,
+    `📚 <b>${esc(r.manga_title)}</b>`,
+    quote([
+      `📖 ${esc(r.chapter_label)}${r.chapter_title ? " · <i>" + esc(r.chapter_title) + "</i>" : ""}`,
+      `📄 Trang <b>${r.page_first}–${r.page_second}</b> / ${r.pages_total}`,
+      r.author && `✍️ ${esc(r.author)}`,
+      `👥 ${esc(r.credit)}`,
+    ]),
+    [viewNote && hint(viewNote), r.direction === "rtl" && hint("↩️ Đọc phải → trái")].filter(Boolean).join("\n"),
+    `🔗 <a href="${esc(r.chapter_url)}">Mở chương trên MangaDex</a>`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const img1 = r.tg_first_image || r.first_image;
   const img2 = r.tg_second_image || r.second_image;
   try {
@@ -225,7 +254,7 @@ async function sendPick(env, chatId, r, header = "") {
         { type: "photo", media: img2 },
       ],
     });
-    return send(token, chatId, `Trang ${r.page_first}–${r.page_second}:`, pickKeyboard(r));
+    return send(token, chatId, `🎛 <b>Trang ${r.page_first}–${r.page_second}</b> · <i>${esc(r.manga_title)}</i>`, pickKeyboard(r));
   } catch (e) {
     // Telegram không tải được ảnh → gửi link thay thế
     return send(
@@ -251,19 +280,20 @@ function pickKeyboard(r) {
   return { inline_keyboard: rows };
 }
 
-function settingsText(s) {
+function settingsBody(s) {
   const mode = s.author ? (s.author === AUTO_AUTHOR ? `Auto – ${AUTO_AUTHOR}` : `Tác giả – ${esc(s.author)}`) : "Ngẫu nhiên toàn bộ";
-  const dir = { auto: "Tự động (manga Nhật: phải→trái)", rtl: "Phải → trái", ltr: "Trái → phải" }[s.dir] || s.dir;
-  return (
-    `⚙️ <b>Cài đặt</b>\n` +
-    `Hiển thị: <b>${viewName(s)}</b>\n` +
-    `Chế độ: <b>${mode}</b>\n` +
-    `Nội dung: <b>${s.ratings.join(", ")}</b>\n` +
-    `Hướng đọc: <b>${dir}</b>\n` +
-    `Chất lượng ảnh: <b>${effectiveView(s) !== "pages" ? "Gốc (tự động cho ô truyện)" : s.quality === "data" ? "Gốc" : "Nhẹ (data-saver)"}</b>\n` +
-    `Ngôn ngữ: <b>${s.lang.toUpperCase()}</b>\n\n` +
-    `<i>TRMNL áp dụng ở lần làm mới tiếp theo.</i>`
-  );
+  const dir = { auto: "Tự động", rtl: "Phải → trái", ltr: "Trái → phải" }[s.dir] || s.dir;
+  const quality = effectiveView(s) !== "pages" ? "Gốc (tự động)" : s.quality === "data" ? "Gốc" : "Nhẹ";
+  return [
+    "🖼 <b>Hiển thị</b>",
+    quote([kv("Kiểu", viewName(s)), kv("Hướng đọc", dir), kv("Ảnh", quality)]),
+    "📚 <b>Nguồn truyện</b>",
+    quote([kv("Chế độ", mode), kv("Nội dung", s.ratings.join(", ")), kv("Ngôn ngữ", s.lang.toUpperCase())]),
+  ].join("\n");
+}
+
+function settingsText(s, icon = "⚙️", title = "Cài đặt") {
+  return card(icon, title, settingsBody(s), hint("TRMNL áp dụng ở lần làm mới tiếp theo. Bấm nút bên dưới để đổi."));
 }
 
 function effectiveView(s) {
@@ -285,40 +315,66 @@ function settingsKeyboard(s) {
         { text: on(effectiveView(s) === "pages", "📖 2 trang"), callback_data: "set:v:pages" },
       ],
       [
-        { text: on(s.author === AUTO_AUTHOR, "Auto Junji Ito"), callback_data: "set:m:auto" },
-        { text: on(!s.author, "Ngẫu nhiên"), callback_data: "set:m:random" },
+        { text: on(s.author === AUTO_AUTHOR, "✍️ Junji Ito"), callback_data: "set:m:auto" },
+        { text: on(!s.author, "🎲 Ngẫu nhiên"), callback_data: "set:m:random" },
       ],
       [
-        { text: on(r === "safe", "Safe"), callback_data: "set:r:safe" },
+        { text: on(r === "safe", "🟢 Safe"), callback_data: "set:r:safe" },
         { text: on(r === "safe,suggestive", "+Suggestive"), callback_data: "set:r:safe,suggestive" },
         { text: on(r === "safe,suggestive,erotica", "+Erotica"), callback_data: "set:r:safe,suggestive,erotica" },
       ],
       [
-        { text: on(s.dir === "auto", "Hướng: Auto"), callback_data: "set:d:auto" },
-        { text: on(s.dir === "rtl", "P→T"), callback_data: "set:d:rtl" },
-        { text: on(s.dir === "ltr", "T→P"), callback_data: "set:d:ltr" },
+        { text: on(s.dir === "auto", "↔️ Tự động"), callback_data: "set:d:auto" },
+        { text: on(s.dir === "rtl", "⬅️ P→T"), callback_data: "set:d:rtl" },
+        { text: on(s.dir === "ltr", "➡️ T→P"), callback_data: "set:d:ltr" },
       ],
-      [
-        { text: on(s.quality === "data-saver", "Ảnh nhẹ"), callback_data: "set:q:data-saver" },
-        { text: on(s.quality === "data", "Ảnh gốc"), callback_data: "set:q:data" },
-      ],
+      // Chọn chất lượng ảnh chỉ có ý nghĩa ở chế độ 2 trang (ô truyện luôn dùng ảnh gốc)
+      ...(effectiveView(s) === "pages"
+        ? [
+            [
+              { text: on(s.quality === "data-saver", "🪶 Ảnh nhẹ"), callback_data: "set:q:data-saver" },
+              { text: on(s.quality === "data", "🖼 Ảnh gốc"), callback_data: "set:q:data" },
+            ],
+          ]
+        : []),
     ],
   };
 }
 
-function helpText() {
-  return (
-    `📚 <b>TRMNL × MangaDex</b> · v${VERSION}\n\n` +
-    COMMANDS.map(([c, d]) => `/${c} – ${esc(d)}`).join("\n")
-  );
+const HELP_GROUPS = [
+  ["🖼", "Xem truyện", ["now", "new"]],
+  ["📚", "Chọn nguồn truyện", ["auto", "random", "author"]],
+  ["⚙️", "Cài đặt & thông tin", ["settings", "url", "version", "help"]],
+];
+
+function helpBody() {
+  const desc = Object.fromEntries(COMMANDS);
+  return HELP_GROUPS.map(([icon, title, cmds]) => `${icon} <b>${title}</b>\n` + quote(cmds.map((c) => `/${c} — ${esc(desc[c])}`))).join("\n\n");
 }
 
-export function changelogText(entry, isCommand = false) {
-  return (
-    (isCommand ? `ℹ️ Phiên bản hiện tại: <b>v${VERSION}</b>\n\n` : `🆕 <b>Đã cập nhật lên v${entry.version}</b>\n\n`) +
-    `<b>Change log v${entry.version}</b> (${entry.date})\n` +
-    entry.changes.map((c) => `• ${esc(c)}`).join("\n")
-  );
+function helpText(s) {
+  const now = s ? quote([kv("Hiển thị", viewName(s)), kv("Nguồn", s.author ? esc(s.author) : "Ngẫu nhiên toàn bộ")]) : "";
+  return card("📚", "TRMNL × MangaDex", hint(`Phiên bản v${VERSION}`) + (now ? "\n" + now : ""), helpBody());
+}
+
+function changesQuote(entry, expandable = false) {
+  return quote(entry.changes.map((c) => `• ${esc(c)}`), expandable);
+}
+
+export function changelogText(entry) {
+  return card("🆕", `Đã cập nhật lên v${entry.version}`, hint(`Change log · ${entry.date}`), changesQuote(entry));
+}
+
+function versionText() {
+  const [latest, ...older] = CHANGELOG;
+  const olderBlock = older.length
+    ? "🗂 <b>Các bản trước</b>\n" +
+      quote(
+        older.slice(0, 6).flatMap((e) => [`<b>v${e.version}</b> · ${e.date}`, ...e.changes.map((c) => `• ${esc(c)}`), ""]),
+        true
+      )
+    : "";
+  return card("ℹ️", `Phiên bản v${VERSION}`, hint(`Change log · ${latest.date}`), changesQuote(latest), olderBlock);
 }
 
 // Sau khi Cloudflare triển khai bản mới: nhắn change log + cập nhật menu lệnh
