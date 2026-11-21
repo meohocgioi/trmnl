@@ -397,6 +397,26 @@ export async function readableLanguages(mangaId) {
   return [...count.entries()].map(([lang, n]) => ({ lang, n })).sort((a, b) => b.n - a.n);
 }
 
+// Vì sao không đọc được: đếm theo ngôn ngữ số chương bị gỡ (unavailable) và chỉ có link ngoài
+export async function unreadableBreakdown(mangaId) {
+  const res = await api(`/manga/${mangaId}/feed`, [
+    ["limit", "500"],
+    ["offset", "0"],
+    ["includeUnavailable", "1"],
+    ["includeExternalUrl", "1"],
+  ]);
+  const by = new Map();
+  for (const c of res.data || []) {
+    const at = c.attributes || {};
+    const l = at.translatedLanguage || "?";
+    const e = by.get(l) || { lang: l, removed: 0, external: 0 };
+    if (at.isUnavailable) e.removed++;
+    else if (at.externalUrl) e.external++;
+    by.set(l, e);
+  }
+  return [...by.values()].filter((e) => e.removed || e.external).sort((a, b) => b.removed + b.external - (a.removed + a.external));
+}
+
 export async function getManga(id) {
   return compactManga((await api(`/manga/${id}`)).data);
 }

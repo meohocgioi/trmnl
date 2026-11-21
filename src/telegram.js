@@ -13,6 +13,7 @@ import {
   getManga,
   getAuthor,
   readableLanguages,
+  unreadableBreakdown,
 } from "./manga.js";
 
 export const COMMANDS = [
@@ -436,10 +437,25 @@ async function offerLanguages(env, chatId, mangaId, title, triedLang) {
     return send(token, chatId, errorCard("Không kiểm tra được ngôn ngữ", e.message, "Thử lại sau ít phút."), searchStartKeyboard());
   }
   if (!langs.length) {
+    // Giải thích rõ: chương bị gỡ ảnh (unavailable) hay chỉ có link ngoài, theo từng ngôn ngữ
+    let detail = [];
+    try {
+      detail = (await unreadableBreakdown(mangaId)).slice(0, 8).map((e) => {
+        const parts = [e.removed && `${e.removed} chương đã bị gỡ`, e.external && `${e.external} chương chỉ có link ngoài`].filter(Boolean).join(" · ");
+        return `${flag(e.lang)} ${langName(e.lang)}: ${parts}`;
+      });
+    } catch (_) {}
     return send(
       token,
       chatId,
-      card("📭", `“${esc(title)}” chưa đọc được trên MangaDex`, quote("Bộ này không có chương nào đọc được trực tiếp (chỉ có link sang trang khác)."), hint("Cài đặt cũ vẫn giữ nguyên. Thử chọn kết quả khác.")),
+      card(
+        "📭",
+        `“${esc(title)}” chưa đọc được trên MangaDex`,
+        quote(detail.length ? detail : ["Bộ này không có chương nào đọc được trực tiếp."]),
+        hint(
+          "Chương “đã bị gỡ” vẫn hiện tên trên MangaDex (chữ mờ, khi tích “Show unavailable chapters”) nhưng ảnh đã bị xoá – kể cả trên MangaDex cũng không mở được. Cài đặt cũ vẫn giữ nguyên."
+        )
+      ),
       searchStartKeyboard()
     );
   }
