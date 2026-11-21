@@ -1,5 +1,6 @@
 // Lấy trang truyện từ MangaDex: chọn bộ / chương / 2 trang liên tiếp + proxy ảnh
 import { VERSION } from "./version.js";
+import { clientScriptBase64 } from "./panels-client.js";
 
 const API = "https://api.mangadex.org";
 export const UA = `TRMNL-MangaDex-Pages/${VERSION} (personal e-ink display; Cloudflare Worker)`;
@@ -167,6 +168,8 @@ function buildResult(meta, home, i, o, origin, attempts) {
     view: o.view,
     panel_seed: Math.floor(Math.random() * 1e9),
     script_url: `${origin}/panels.js?v=${VERSION}`,
+    // Script nhúng thẳng vào markup (máy chủ TRMNL không chạy script từ trang ngoài)
+    panels_js_b64: o.view === "panels" ? clientScriptBase64() : "",
     first_on_left: direction !== "rtl",
     direction,
     left_image: left.image,

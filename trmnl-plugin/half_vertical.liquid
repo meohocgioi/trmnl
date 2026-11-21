@@ -13,7 +13,7 @@
   <span class="title">{{ manga_title | truncate: 26 }}</span>
   <span class="instance"><span id="mdx-panels"></span>{{ chapter_label }} · p.{{ page_first }}–{{ page_second }}/{{ pages_total }} · MangaDex</span>
 </div>
-{% if script_url %}<script src="{{ script_url }}"></script>{% endif %}
+{% if panels_js_b64 %}<script>(function(){try{var s=document.createElement("script");s.text=atob("{{ panels_js_b64 }}");(document.body||document.documentElement).appendChild(s);}catch(e){console.log("mdx loader error",e);var el=document.getElementById("mdx-panels");if(el)el.textContent="\u26a0 loader · ";}})();</script>{% elsif script_url %}<script src="{{ script_url }}"></script>{% endif %}
 {% else %}
 <div class="layout layout--col layout--center">
   <span class="title">MangaDex</span>

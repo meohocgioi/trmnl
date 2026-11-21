@@ -128,8 +128,13 @@ export function clientMain() {
   };
   const root = document.getElementById("mdx-root");
   if (!root) return log("không thấy #mdx-root");
-  if (root.dataset.done) return;
-  if (root.dataset.view !== "panels") return log("chế độ 2 trang → giữ nguyên");
+  if (root.dataset.done || window.__mdxStarted) return;
+  window.__mdxStarted = true;
+  status("⏳");
+  if (root.dataset.view !== "panels") {
+    status("");
+    return log("chế độ 2 trang → giữ nguyên");
+  }
   const rtl = root.dataset.dir === "rtl";
   const seed = parseInt(root.dataset.seed || "0", 10) || 0;
   // Lấy ảnh NGAY khi script chạy (trước khi framework TRMNL kịp đụng vào)
@@ -260,6 +265,17 @@ export function clientMain() {
       status("⚠ " + msg.slice(0, 40));
       log("lỗi, giữ chế độ 2 trang:", msg);
     });
+}
+
+// Bản chỉ gồm ký tự ASCII (tiếng Việt → \uXXXX) để nhúng an toàn qua base64
+export function buildClientScriptAscii() {
+  return buildClientScript().replace(/[^\x00-\x7f]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
+let cachedB64 = null;
+export function clientScriptBase64() {
+  if (!cachedB64) cachedB64 = btoa(buildClientScriptAscii());
+  return cachedB64;
 }
 
 export function buildClientScript() {
