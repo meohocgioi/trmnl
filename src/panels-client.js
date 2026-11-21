@@ -281,6 +281,8 @@ export function clientScriptBase64() {
 export function buildClientScript() {
   return (
     "/* TRMNL × MangaDex – panel mode */\n" +
+    // Công cụ đóng gói của Cloudflare có thể chèn __name(fn, "tên") vào code → định nghĩa sẵn cho trình duyệt
+    "var __name = function (f) { return f; };\n" +
     detectPanels.toString() + "\n" +
     layoutPair.toString() + "\n" +
     clientMain.toString() + "\n" +
