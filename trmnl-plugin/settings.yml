@@ -1,0 +1,10 @@
+---
+name: MangaDex Random Pages
+strategy: polling
+refresh_interval: 60
+# Thay bằng link mà bot trả lời khi gõ /url (sau khi import vẫn sửa được trong phần cài đặt plugin)
+polling_url: https://trmnl.YOUR-SUBDOMAIN.workers.dev/
+polling_headers: ''
+polling_verb: GET
+no_screen_padding: 'no'
+dark_mode: 'no'

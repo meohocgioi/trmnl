@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "trmnl",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  // Giữ nguyên biến/secret đặt trên dashboard khi deploy bản mới
+  "keep_vars": true,
+  // Nơi lưu cài đặt bot (Durable Object SQLite – có trong gói Free, tự tạo khi deploy)
+  "durable_objects": {
+    "bindings": [{ "name": "STORE", "class_name": "Store" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Store"] }],
+  // Mỗi 30 phút kiểm tra có bản mới không để nhắn change log
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "observability": { "enabled": true }
+}

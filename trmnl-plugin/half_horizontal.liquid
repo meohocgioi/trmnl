@@ -1,0 +1,24 @@
+{% if ok %}
+<div class="layout layout--row" style="width: 100%; gap: 8px; align-items: stretch;">
+  <div style="flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
+    <img class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ left_image }}" alt="page {{ left_page }}">
+  </div>
+  <div style="flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center;">
+    <img class="image image--contain image-dither" style="width: 100%; height: 100%;" src="{{ right_image }}" alt="page {{ right_page }}">
+  </div>
+</div>
+
+<div class="title_bar">
+  <span class="title">{{ manga_title | truncate: 40 }}</span>
+  <span class="instance">{{ chapter_label }} · p.{{ page_first }}–{{ page_second }}/{{ pages_total }} · {{ credit | truncate: 32 }}</span>
+</div>
+{% else %}
+<div class="layout layout--col layout--center">
+  <span class="title">MangaDex</span>
+  <span class="description">{{ error | default: "Chưa có dữ liệu – kiểm tra Polling URL" }}</span>
+</div>
+
+<div class="title_bar">
+  <span class="title">Manga Pages</span>
+</div>
+{% endif %}

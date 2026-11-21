@@ -1,0 +1,14 @@
+{
+  "name": "trmnl-mangadex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TRMNL plugin: 2 random consecutive manga pages from MangaDex, controlled via Telegram",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
