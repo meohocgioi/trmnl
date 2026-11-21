@@ -12,6 +12,7 @@ import {
   searchAuthors,
   getManga,
   getAuthor,
+  readableLanguages,
 } from "./manga.js";
 
 export const COMMANDS = [
@@ -193,6 +194,11 @@ async function onCallback(cq, env) {
     await ack("⏳ Đang chuẩn bị cho TRMNL…");
     return selectResult(env, chatId, sel[1], sel[2], settings);
   }
+  const sl = data.match(/^sl:([a-z]{2}(?:-[a-z]{2,3})?):([0-9a-f-]{36})$/);
+  if (sl && isUuid(sl[2])) {
+    await ack(`${flag(sl[1])} ${langName(sl[1])}…`);
+    return selectResult(env, chatId, "m", sl[2], settings, sl[1]);
+  }
   const pv = data.match(/^pv:([0-9a-f-]{36})$/);
   if (pv && isUuid(pv[1])) {
     const r = await store.getItem(`pick:${pv[1]}`);
@@ -261,12 +267,30 @@ async function onCallback(cq, env) {
 /* ---------- Tìm kiếm ---------- */
 
 const TYPE_NAME = { t: "tên truyện", a: "tác giả" };
+const LANGS = {
+  vi: ["🇻🇳", "Tiếng Việt"], en: ["🇬🇧", "English"], ja: ["🇯🇵", "日本語"], "ja-ro": ["🇯🇵", "Romaji"],
+  es: ["🇪🇸", "Español"], "es-la": ["🇲🇽", "Español (LA)"], "pt-br": ["🇧🇷", "Português (BR)"], pt: ["🇵🇹", "Português"],
+  fr: ["🇫🇷", "Français"], de: ["🇩🇪", "Deutsch"], it: ["🇮🇹", "Italiano"], ru: ["🇷🇺", "Русский"], uk: ["🇺🇦", "Українська"],
+  pl: ["🇵🇱", "Polski"], tr: ["🇹🇷", "Türkçe"], id: ["🇮🇩", "Indonesia"], ms: ["🇲🇾", "Melayu"], th: ["🇹🇭", "ไทย"],
+  ko: ["🇰🇷", "한국어"], zh: ["🇨🇳", "中文"], "zh-hk": ["🇭🇰", "中文 (HK)"], ar: ["🇸🇦", "العربية"], fa: ["🇮🇷", "فارسی"],
+  he: ["🇮🇱", "עברית"], hi: ["🇮🇳", "हिन्दी"], tl: ["🇵🇭", "Filipino"], hu: ["🇭🇺", "Magyar"], cs: ["🇨🇿", "Čeština"],
+  ro: ["🇷🇴", "Română"], nl: ["🇳🇱", "Nederlands"], sv: ["🇸🇪", "Svenska"], el: ["🇬🇷", "Ελληνικά"], bg: ["🇧🇬", "Български"],
+};
+const flag = (l) => (LANGS[l] || ["🌐"])[0];
+const langName = (l) => (LANGS[l] ? LANGS[l][1] : l.toUpperCase());
+// "🇬🇧 🇻🇳 🇪🇸 +5" — ngôn ngữ người dùng hay cần đứng trước
+const langBadges = (langs, max = 5) => {
+  const rank = (l) => (l === "vi" ? 0 : l === "en" ? 1 : 2);
+  const sorted = [...new Set(langs)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return sorted.slice(0, max).map(flag).join(" ") + (sorted.length > max ? ` +${sorted.length - max}` : "");
+};
 const STATUS_VI = { ongoing: "đang ra", completed: "hoàn thành", hiatus: "tạm ngưng", cancelled: "đã huỷ" };
 const short = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
 
 function clearPick(s) {
   delete s.mangaId;
   delete s.mangaTitle;
+  delete s.mangaLang;
   delete s.authorId;
 }
 
@@ -311,7 +335,8 @@ async function doSearch(env, chatId, type, q, page, settings, editId) {
     const n = n0 + i + 1;
     if (type === "t") {
       const meta = [it.authors && "✍️ " + esc(short(it.authors, 40)), it.year, STATUS_VI[it.status] || it.status].filter(Boolean).join(" · ");
-      return `<b>${n}.</b> ${esc(it.title)}` + (meta ? `\n      <i>${meta}</i>` : "");
+      const langs = it.langs && it.langs.length ? `\n      🌐 ${langBadges(it.langs)}` : "\n      🌐 <i>chưa có bản dịch</i>";
+      return `<b>${n}.</b> ${esc(it.title)}` + (meta ? `\n      <i>${meta}</i>` : "") + langs;
     }
     return `<b>${n}.</b> ${esc(it.name)}` + (it.works ? ` · <i>${it.works} tác phẩm</i>` : "");
   });
@@ -344,7 +369,7 @@ async function doSearch(env, chatId, type, q, page, settings, editId) {
 }
 
 // Chọn 1 kết quả → lưu cài đặt + xếp sẵn 2 trang cho lần làm mới TRMNL tới
-async function selectResult(env, chatId, kind, id, settings) {
+async function selectResult(env, chatId, kind, id, settings, lang) {
   const { token, store } = env;
   await tg(token, "sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
   const next = { ...settings };
@@ -356,7 +381,10 @@ async function selectResult(env, chatId, kind, id, settings) {
       const m = await getManga(id);
       next.mangaId = id;
       next.mangaTitle = m.title;
+      if (lang && lang !== next.lang) next.mangaLang = lang;
+      const L = lang || next.lang;
       label = kv("📖 Truyện", esc(m.title));
+      extra = [kv("🌐 Ngôn ngữ", `${flag(L)} ${langName(L)}`)];
     } else {
       const a = await getAuthor(id);
       next.author = a.name;
@@ -393,8 +421,47 @@ async function selectResult(env, chatId, kind, id, settings) {
       }
     );
   } catch (e) {
+    if (kind === "m" && e.code === "NO_LANG") return offerLanguages(env, chatId, id, next.mangaTitle || "", lang || next.lang);
     return send(token, chatId, errorCard("Chưa dùng được lựa chọn này", e.message, "Cài đặt cũ vẫn giữ nguyên. Thử chọn kết quả khác."), searchStartKeyboard());
   }
+}
+
+// Bộ truyện không có chương đọc được ở ngôn ngữ đang dùng → hiện các ngôn ngữ bộ đó có
+async function offerLanguages(env, chatId, mangaId, title, triedLang) {
+  const { token } = env;
+  let langs = [];
+  try {
+    langs = (await readableLanguages(mangaId)).filter((x) => x.lang !== triedLang);
+  } catch (e) {
+    return send(token, chatId, errorCard("Không kiểm tra được ngôn ngữ", e.message, "Thử lại sau ít phút."), searchStartKeyboard());
+  }
+  if (!langs.length) {
+    return send(
+      token,
+      chatId,
+      card("📭", `“${esc(title)}” chưa đọc được trên MangaDex`, quote("Bộ này không có chương nào đọc được trực tiếp (chỉ có link sang trang khác)."), hint("Cài đặt cũ vẫn giữ nguyên. Thử chọn kết quả khác.")),
+      searchStartKeyboard()
+    );
+  }
+  // Tiếng Việt lên đầu nếu có, còn lại theo số chương
+  langs.sort((a, b) => (b.lang === "vi") - (a.lang === "vi") || b.n - a.n);
+  const shown = langs.slice(0, 12);
+  const rows = [];
+  for (let i = 0; i < shown.length; i += 2) {
+    rows.push(shown.slice(i, i + 2).map((x) => ({ text: `${flag(x.lang)} ${langName(x.lang)} · ${x.n} ch`, callback_data: `sl:${x.lang}:${mangaId}` })));
+  }
+  rows.push([{ text: "🔎 Chọn bộ khác", callback_data: "srch" }]);
+  return send(
+    token,
+    chatId,
+    card(
+      "🌐",
+      `Chọn ngôn ngữ cho “${esc(title)}”`,
+      quote([`Không có chương ${flag(triedLang)} ${langName(triedLang)} đọc được.`, `Bộ này đang có ${langs.length} ngôn ngữ khác:`]),
+      hint("Chọn 1 ngôn ngữ → TRMNL hiện bộ này bằng ngôn ngữ đó (chỉ áp dụng cho bộ này).")
+    ),
+    { inline_keyboard: rows }
+  );
 }
 
 async function newPick(env, chatId, settings) {
@@ -463,7 +530,7 @@ function pickKeyboard(r) {
 }
 
 function sourceName(s) {
-  if (s.mangaId) return `Bộ truyện – ${esc(s.mangaTitle || "?")}`;
+  if (s.mangaId) return `Bộ truyện – ${esc(s.mangaTitle || "?")}` + (s.mangaLang ? ` (${flag(s.mangaLang)} ${s.mangaLang.toUpperCase()})` : "");
   if (s.author) return s.author === AUTO_AUTHOR ? `Auto – ${AUTO_AUTHOR}` : `Tác giả – ${esc(s.author)}`;
   return "Ngẫu nhiên toàn bộ";
 }
@@ -476,7 +543,7 @@ function settingsBody(s) {
     "🖼 <b>Hiển thị</b>",
     quote([kv("Kiểu", viewName(s)), kv("Hướng đọc", dir), kv("Ảnh", quality)]),
     "📚 <b>Nguồn truyện</b>",
-    quote([kv("Chế độ", mode), kv("Nội dung", s.ratings.join(", ")), kv("Ngôn ngữ", s.lang.toUpperCase())]),
+    quote([kv("Chế độ", mode), kv("Nội dung", s.ratings.join(", ")), kv("Ngôn ngữ", s.mangaId && s.mangaLang ? `${s.mangaLang.toUpperCase()} (cho bộ này) · mặc định ${s.lang.toUpperCase()}` : s.lang.toUpperCase())]),
   ].join("\n");
 }
 

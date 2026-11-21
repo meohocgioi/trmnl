@@ -32,7 +32,7 @@ export function mergeOptions(settings, params) {
     if (r.length) ratings = r;
   }
   const langRaw = (p.get("lang") || s.lang || "en").trim();
-  const lang = /^[a-z]{2}(-[a-z]{2})?$/i.test(langRaw) ? langRaw.toLowerCase() : "en";
+  const lang = /^[a-z]{2}(-[a-z]{2,3})?$/i.test(langRaw) ? langRaw.toLowerCase() : "en";
   // Bản cũ lưu "panels" mặc định → chuyển sang auto (trừ khi người dùng đã tự chọn)
   const stored = s.view === "panels" && !s.viewPicked ? "auto" : s.view;
   const vRaw = p.get("view") || stored;
@@ -57,7 +57,10 @@ export function mergeOptions(settings, params) {
     mangaId = "";
   }
   if (p.get("manga") && isUuid(p.get("manga"))) mangaId = p.get("manga");
-  return { ratings, lang, quality, dir, longStrip, author, view, authorId, mangaId, mangaTitle };
+  // Bộ truyện chọn từ /search có thể dùng ngôn ngữ riêng (vd. 🇻🇳 khi không có EN)
+  const mangaLang = s.mangaLang || "";
+  const effLang = mangaId && mangaLang && !p.get("lang") ? mangaLang : lang;
+  return { ratings, lang: effLang, quality, dir, longStrip, author, view, authorId, mangaId, mangaTitle };
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,7 +72,9 @@ export async function pickPages(o, origin, store) {
   // Chế độ 1 bộ truyện (chọn từ /search title)
   const single = o.mangaId ? compactManga((await api(`/manga/${o.mangaId}`)).data) : null;
   if (single && single.langs && !single.langs.includes(o.lang)) {
-    throw new Error(`"${single.title}" không có bản ${o.lang.toUpperCase()} trên MangaDex`);
+    const err = new Error(`"${single.title}" không có bản ${o.lang.toUpperCase()} trên MangaDex`);
+    err.code = "NO_LANG";
+    throw err;
   }
   const byAuthor = !single && o.author ? await authorMangaList(o, store) : null;
   let pool = byAuthor ? byAuthor.mangas.filter((m) => !byAuthor.dead.includes(m.id)) : null;
@@ -128,7 +133,7 @@ export async function pickPages(o, origin, store) {
   } finally {
     if (deadChanged && store) await store.setItem(byAuthor.key, byAuthor);
   }
-  throw new Error(
+  const finalError = new Error(
     lastError
       ? `Không lấy được trang truyện: ${lastError.message}`
       : single
@@ -137,6 +142,8 @@ export async function pickPages(o, origin, store) {
       ? `Chưa tìm được chương ${o.lang.toUpperCase()} đọc được của ${o.author} – sẽ thử bộ khác ở lần sau`
       : `Không tìm được chương phù hợp sau ${maxAttempts} lần thử`
   );
+  if (single && !lastError) finalError.code = "NO_LANG";
+  throw finalError;
 }
 
 // 2 trang tiếp theo trong cùng chương (dùng cho nút ▶️)
@@ -338,7 +345,7 @@ export async function searchTitles(q, page, o) {
   ];
   let res;
   try {
-    res = await api("/manga", [...base, ["availableTranslatedLanguage[]", o.lang]]);
+    res = await api("/manga", base);
   } catch (e) {
     if (e.status !== 400) throw e;
     res = await api("/manga", base.filter(([k]) => k !== "order[relevance]"));
@@ -348,7 +355,7 @@ export async function searchTitles(q, page, o) {
     const c = compactManga(m);
     const a = m.attributes || {};
     const authors = [...new Set((m.relationships || []).filter((r) => r.type === "author").map((r) => r.attributes && r.attributes.name).filter(Boolean))];
-    return { id: m.id, title: c.title, year: a.year || "", status: a.status || "", authors: authors.join(", ") };
+    return { id: m.id, title: c.title, year: a.year || "", status: a.status || "", authors: authors.join(", "), langs: c.langs || [] };
   });
   return { total, pages: Math.max(1, Math.ceil(total / SEARCH_PAGE)), items };
 }
@@ -369,6 +376,25 @@ export async function searchAuthors(q, page) {
     works: (x.relationships || []).filter((r) => r.type === "manga").length,
   }));
   return { total, pages: Math.max(1, Math.ceil(total / SEARCH_PAGE)), items };
+}
+
+// Ngôn ngữ có chương ĐỌC ĐƯỢC trên MangaDex (bỏ link ngoài / chương rỗng), kèm số chương
+export async function readableLanguages(mangaId) {
+  const base = [["limit", "500"], ["offset", "0"]];
+  let res;
+  try {
+    res = await api(`/manga/${mangaId}/feed`, [...base, ["includeExternalUrl", "0"], ["includeEmptyPages", "0"], ["includeFuturePublishAt", "0"]]);
+  } catch (e) {
+    if (e.status !== 400) throw e;
+    res = await api(`/manga/${mangaId}/feed`, base);
+  }
+  const count = new Map();
+  for (const c of res.data || []) {
+    const at = c.attributes || {};
+    if (at.externalUrl || (typeof at.pages === "number" && at.pages < 2) || !at.translatedLanguage) continue;
+    count.set(at.translatedLanguage, (count.get(at.translatedLanguage) || 0) + 1);
+  }
+  return [...count.entries()].map(([lang, n]) => ({ lang, n })).sort((a, b) => b.n - a.n);
 }
 
 export async function getManga(id) {

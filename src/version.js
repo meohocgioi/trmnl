@@ -1,9 +1,18 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.4.1";
+export const VERSION = "1.4.2";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.4.2",
+    date: "2026-11-21",
+    changes: [
+      "🌐 Bộ truyện không có chương EN đọc được → bot hiện nút các ngôn ngữ bộ đó có (🇻🇳 Tiếng Việt ưu tiên đầu), kèm số chương",
+      "Chọn ngôn ngữ chỉ áp dụng cho bộ đó, các chế độ khác vẫn giữ EN",
+      "Kết quả /title tìm mọi bộ (không chỉ bộ có EN) và ghi cờ các ngôn ngữ đang có",
+    ],
+  },
   {
     version: "1.4.1",
     date: "2026-11-21",
