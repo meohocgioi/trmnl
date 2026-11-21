@@ -14,7 +14,7 @@ export const DEFAULT_SETTINGS = {
   ratings: ["safe", "suggestive"],
   dir: "auto", // auto | rtl | ltr
   quality: "data-saver", // data-saver | data  (chế độ ô truyện luôn dùng ảnh gốc)
-  view: "panels", // panels = 2 ô truyện liền nhau | pages = 2 trang
+  view: "auto", // auto = 1–2 ô (ưu tiên 1 ô nếu đủ lấp màn hình) | panels = 2 ô | pages = 2 trang
   lang: "en",
   longStrip: false,
 };
@@ -33,9 +33,12 @@ export function mergeOptions(settings, params) {
   }
   const langRaw = (p.get("lang") || s.lang || "en").trim();
   const lang = /^[a-z]{2}(-[a-z]{2})?$/i.test(langRaw) ? langRaw.toLowerCase() : "en";
-  const view = (p.get("view") || s.view) === "pages" ? "pages" : "panels";
+  // Bản cũ lưu "panels" mặc định → chuyển sang auto (trừ khi người dùng đã tự chọn)
+  const stored = s.view === "panels" && !s.viewPicked ? "auto" : s.view;
+  const vRaw = p.get("view") || stored;
+  const view = ["pages", "panels", "auto"].includes(vRaw) ? vRaw : "auto";
   // Ô truyện được phóng to → cần ảnh gốc cho nét
-  const quality = view === "panels" || (p.get("quality") || s.quality) === "data" ? "data" : "data-saver";
+  const quality = view !== "pages" || (p.get("quality") || s.quality) === "data" ? "data" : "data-saver";
   const dirRaw = p.get("dir") || s.dir;
   const dir = ["rtl", "ltr"].includes(dirRaw) ? dirRaw : "auto";
   const longStrip = p.has("longstrip") ? p.get("longstrip") === "1" : !!s.longStrip;
@@ -169,7 +172,7 @@ function buildResult(meta, home, i, o, origin, attempts) {
     panel_seed: Math.floor(Math.random() * 1e9),
     script_url: `${origin}/panels.js?v=${VERSION}`,
     // Script nhúng thẳng vào markup (máy chủ TRMNL không chạy script từ trang ngoài)
-    panels_js_b64: o.view === "panels" ? clientScriptBase64() : "",
+    panels_js_b64: o.view !== "pages" ? clientScriptBase64() : "",
     first_on_left: direction !== "rtl",
     direction,
     left_image: left.image,
@@ -180,6 +183,20 @@ function buildResult(meta, home, i, o, origin, attempts) {
     generated_at: new Date().toISOString(),
     _meta: meta, // dùng nội bộ cho nút ▶️
   };
+}
+
+// Ghim đúng 1 chương + trang (index 0-based của trang đầu) — dùng để kiểm tra / Telegram
+export async function pinChapter(chapterId, idx, o, origin) {
+  const ch = await api(`/chapter/${chapterId}`, [["includes[]", "manga"], ["includes[]", "scanlation_group"]]);
+  const c = ch.data;
+  const mrel = (c.relationships || []).find((r) => r.type === "manga");
+  const manga = compactManga(mrel || { id: "", attributes: {} });
+  const home = await atHome(chapterId);
+  const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
+  if (!Array.isArray(files) || idx < 0 || idx + 1 >= files.length) throw new Error("Trang không hợp lệ");
+  const ca = c.attributes || {};
+  const meta = { manga, chapter: { id: c.id, label: chapterLabel(ca), title: ca.title || "", group: groupName(c) }, author: "", authorTitles: 0 };
+  return buildResult(meta, home, idx, o, origin, 0);
 }
 
 export function publicResult(r) {

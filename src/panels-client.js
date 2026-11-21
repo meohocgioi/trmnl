@@ -126,7 +126,16 @@ export function detectPanels(gray, w, h, rtl) {
   }
 
   split({ x0: 0, y0: 0, x1: w, y1: h }, 0);
-  return out;
+  if (out.length >= 2) return out;
+  // Cả trang chỉ ra ≤1 ô: có thể lề trang bị sần/xám (giấy scan) che mất khe →
+  // thu vùng phân tích vào trong dần để né lề, giữ kết quả đầu tiên tìm được ≥ 2 ô
+  const first = out.slice();
+  for (const f of [0.04, 0.07, 0.1, 0.13]) {
+    out.length = 0;
+    split({ x0: Math.round(w * f), y0: Math.round(h * f), x1: Math.round(w * (1 - f)), y1: Math.round(h * (1 - f)) }, 0);
+    if (out.length >= 2) return out;
+  }
+  return first;
 }
 
 // Xếp 2 ô (tỉ lệ rộng/cao a1, a2) vào khung W×H: ngang hoặc dọc, chọn cách phủ kín nhất
@@ -139,6 +148,13 @@ export function layoutPair(a1, a2, W, H, gap) {
     return { mode: "row", fill: rowArea / (W * H), sizes: [{ w: a1 * hr, h: hr }, { w: a2 * hr, h: hr }] };
   }
   return { mode: "col", fill: colArea / (W * H), sizes: [{ w: wc, h: wc / a1 }, { w: wc, h: wc / a2 }] };
+}
+
+// 1 ô: phóng to vừa khung, giữ tỉ lệ
+export function layoutSingle(a, W, H) {
+  const w = Math.min(W, a * H);
+  const h = w / a;
+  return { mode: "single", fill: (w * h) / (W * H), sizes: [{ w, h }] };
 }
 
 export function clientMain() {
@@ -154,7 +170,8 @@ export function clientMain() {
   if (root.dataset.done || window.__mdxStarted) return;
   window.__mdxStarted = true;
   status("⏳");
-  if (root.dataset.view !== "panels") {
+  const viewMode = root.dataset.view; // auto = 1–2 ô, panels = 2 ô, pages = 2 trang
+  if (viewMode !== "panels" && viewMode !== "auto") {
     status("");
     return log("chế độ 2 trang → giữ nguyên");
   }
@@ -254,21 +271,29 @@ export function clientMain() {
     }
     const box = root.getBoundingClientRect();
     const aspect = (p) => (p.r.w / p.r.h) * p.aspectPage;
-    const options = [];
+    const GOOD = 0.72; // phủ ≥ 72% màn hình
+    const pick = (list) => list[seed % list.length];
+    // Ứng viên 2 ô liền nhau
+    const pairs = [];
     for (let k = 0; k + 1 < all.length; k++) {
-      options.push({ k, L: layoutPair(aspect(all[k]), aspect(all[k + 1]), box.width, box.height, GAP) });
+      pairs.push({ k, n: 2, L: layoutPair(aspect(all[k]), aspect(all[k + 1]), box.width, box.height, GAP) });
     }
-    const good = options.filter((o) => o.L.fill >= 0.72);
-    const pool = good.length ? good : [options.reduce((a, b) => (b.L.fill > a.L.fill ? b : a))];
-    const chosen = pool[seed % pool.length];
+    // Ứng viên 1 ô (chỉ chế độ auto)
+    const singles = viewMode === "auto" ? all.map((p, k) => ({ k, n: 1, L: layoutSingle(aspect(p), box.width, box.height) })) : [];
+    const goodSingles = singles.filter((o) => o.L.fill >= GOOD);
+    const goodPairs = pairs.filter((o) => o.L.fill >= GOOD);
+    let chosen;
+    if (goodSingles.length) chosen = pick(goodSingles); // 1 ô đủ lấp màn hình → ưu tiên
+    else if (goodPairs.length) chosen = pick(goodPairs); // không thì 2 ô
+    else chosen = singles.concat(pairs).reduce((a, b) => (b.L.fill > a.L.fill ? b : a)); // không đạt → lấy cách phủ kín nhất
     const i = chosen.k;
     const L = chosen.L;
-    const pair = [all[i], all[i + 1]];
+    const pair = all.slice(i, i + chosen.n);
 
     const wrap = document.createElement("div");
     wrap.style.cssText =
       "width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:" + GAP + "px;" +
-      "flex-direction:" + (L.mode === "row" ? (rtl ? "row-reverse" : "row") : "column");
+      "flex-direction:" + (L.mode === "col" ? "column" : rtl ? "row-reverse" : "row");
     pair.forEach((p, n) => {
       const sz = L.sizes[n];
       const cell = document.createElement("div");
@@ -291,8 +316,9 @@ export function clientMain() {
     root.appendChild(wrap);
     root.dataset.done = "1";
     const info = document.getElementById("mdx-panels");
-    if (info) info.textContent = "ô " + (i + 1) + "–" + (i + 2) + "/" + all.length + " · ";
-    log("xong: ô", i + 1, "–", i + 2, L.mode, "phủ", Math.round(L.fill * 100) + "%");
+    const label = chosen.n === 1 ? "ô " + (i + 1) : "ô " + (i + 1) + "–" + (i + 2);
+    if (info) info.textContent = label + "/" + all.length + " · ";
+    log("xong:", label, L.mode, "phủ", Math.round(L.fill * 100) + "%");
   }
 
   // Cách A: đọc thẳng từ ảnh đang hiện (nhanh nhất, xong trước khi trang load xong)
@@ -364,6 +390,7 @@ export function buildClientScript() {
     "var __name = function (f) { return f; };\n" +
     detectPanels.toString() + "\n" +
     layoutPair.toString() + "\n" +
+    layoutSingle.toString() + "\n" +
     clientMain.toString() + "\n" +
     'if (document.getElementById("mdx-root")) clientMain(); else document.addEventListener("DOMContentLoaded", clientMain);\n'
   );

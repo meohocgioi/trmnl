@@ -11,7 +11,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { VERSION } from "./version.js";
-import { mergeOptions, pickPages, publicResult, handleImage } from "./manga.js";
+import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
 import { buildClientScript } from "./panels-client.js";
@@ -66,6 +66,18 @@ export default {
               "Access-Control-Allow-Origin": "*",
             },
           });
+        case "/pin": {
+          // Ghim 1 chương/trang cho lần làm mới TRMNL tới (cần mã khoá): /pin?key=…&ch=<chapterId>&p=<index trang đầu, từ 0>
+          const cfg = (await store.getItem("config")) || {};
+          if (!cfg.accessKey || url.searchParams.get("key") !== cfg.accessKey) return json({ ok: false, error: "forbidden" }, 403);
+          const ch = url.searchParams.get("ch") || "";
+          const idx = Number.parseInt(url.searchParams.get("p") || "0", 10);
+          if (!isUuid(ch) || !(idx >= 0)) return json({ ok: false, error: "ch/p không hợp lệ" }, 400);
+          const settings = await store.getItem("settings");
+          const r = await pinChapter(ch, idx, mergeOptions(settings, url.searchParams), url.origin);
+          await store.setItem("pin_next", r);
+          return json({ ok: true, pinned: `${r.manga_title} · ${r.chapter_label} · p.${r.page_first}–${r.page_second}`, view: r.view });
+        }
         case "/version":
           return json({ version: VERSION });
         case "/favicon.ico":

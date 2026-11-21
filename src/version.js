@@ -1,8 +1,17 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.2.3";
+export const VERSION = "1.3.0";
 
 export const CHANGELOG = [
+  {
+    version: "1.3.0",
+    date: "2026-11-21",
+    changes: [
+      "🔍 Chế độ mới (mặc định): 1–2 ô – ưu tiên 1 ô nếu ô đó đủ lấp màn hình, không thì 2 ô liền nhau",
+      "Tìm ô tốt hơn với bản scan có lề trang xám/sần (vd. Tomie: Takeover)",
+      "/settings: chọn 🔍 1–2 ô / 🔍 2 ô / 📖 2 trang",
+    ],
+  },
   {
     version: "1.2.3",
     date: "2026-11-21",

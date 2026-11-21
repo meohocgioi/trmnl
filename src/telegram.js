@@ -172,7 +172,10 @@ async function onCallback(cq, env) {
     if (key === "r") settings.ratings = val.split(",").filter((x) => DEFAULT_SETTINGS.ratings.concat(["erotica"]).includes(x));
     if (key === "d" && ["auto", "rtl", "ltr"].includes(val)) settings.dir = val;
     if (key === "q" && ["data", "data-saver"].includes(val)) settings.quality = val;
-    if (key === "v" && ["panels", "pages"].includes(val)) settings.view = val;
+    if (key === "v" && ["auto", "panels", "pages"].includes(val)) {
+      settings.view = val;
+      settings.viewPicked = true;
+    }
     if (!settings.ratings.length) settings.ratings = ["safe"];
     await store.setItem("settings", settings);
     await ack("✅ Đã lưu");
@@ -210,7 +213,8 @@ async function sendPick(env, chatId, r, header = "") {
     (r.author ? `✍️ ${esc(r.author)}\n` : "") +
     `${esc(r.credit)} · <a href="${esc(r.chapter_url)}">Mở trên MangaDex</a>` +
     (r.direction === "rtl" ? "\n<i>Đọc phải → trái</i>" : "") +
-    (r.view === "panels" ? "\n🔍 <i>TRMNL hiện 2 ô truyện liền nhau trong 2 trang này</i>" : "");
+    (r.view === "panels" ? "\n🔍 <i>TRMNL hiện 2 ô truyện liền nhau trong 2 trang này</i>" : "") +
+    (r.view === "auto" ? "\n🔍 <i>TRMNL hiện 1–2 ô truyện trong 2 trang này</i>" : "");
   const img1 = r.tg_first_image || r.first_image;
   const img2 = r.tg_second_image || r.second_image;
   try {
@@ -252,14 +256,22 @@ function settingsText(s) {
   const dir = { auto: "Tự động (manga Nhật: phải→trái)", rtl: "Phải → trái", ltr: "Trái → phải" }[s.dir] || s.dir;
   return (
     `⚙️ <b>Cài đặt</b>\n` +
-    `Hiển thị: <b>${s.view === "pages" ? "2 trang" : "2 ô truyện liền nhau"}</b>\n` +
+    `Hiển thị: <b>${viewName(s)}</b>\n` +
     `Chế độ: <b>${mode}</b>\n` +
     `Nội dung: <b>${s.ratings.join(", ")}</b>\n` +
     `Hướng đọc: <b>${dir}</b>\n` +
-    `Chất lượng ảnh: <b>${s.view !== "pages" ? "Gốc (tự động cho ô truyện)" : s.quality === "data" ? "Gốc" : "Nhẹ (data-saver)"}</b>\n` +
+    `Chất lượng ảnh: <b>${effectiveView(s) !== "pages" ? "Gốc (tự động cho ô truyện)" : s.quality === "data" ? "Gốc" : "Nhẹ (data-saver)"}</b>\n` +
     `Ngôn ngữ: <b>${s.lang.toUpperCase()}</b>\n\n` +
     `<i>TRMNL áp dụng ở lần làm mới tiếp theo.</i>`
   );
+}
+
+function effectiveView(s) {
+  return s.view === "panels" && !s.viewPicked ? "auto" : s.view || "auto";
+}
+
+function viewName(s) {
+  return { auto: "1–2 ô truyện (tự động)", panels: "2 ô truyện liền nhau", pages: "2 trang" }[effectiveView(s)];
 }
 
 function settingsKeyboard(s) {
@@ -268,8 +280,9 @@ function settingsKeyboard(s) {
   return {
     inline_keyboard: [
       [
-        { text: on(s.view !== "pages", "🔍 2 ô truyện"), callback_data: "set:v:panels" },
-        { text: on(s.view === "pages", "📖 2 trang"), callback_data: "set:v:pages" },
+        { text: on(effectiveView(s) === "auto", "🔍 1–2 ô"), callback_data: "set:v:auto" },
+        { text: on(effectiveView(s) === "panels", "🔍 2 ô"), callback_data: "set:v:panels" },
+        { text: on(effectiveView(s) === "pages", "📖 2 trang"), callback_data: "set:v:pages" },
       ],
       [
         { text: on(s.author === AUTO_AUTHOR, "Auto Junji Ito"), callback_data: "set:m:auto" },
