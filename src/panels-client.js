@@ -163,7 +163,61 @@ export function clientMain() {
     const px = ctx.getImageData(0, 0, AW, AH).data; // lỗi nếu ảnh bị chặn CORS
     const gray = new Uint8Array(AW * AH);
     for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114) / 1000;
-    return detectPanels(gray, AW, AH, rtl);
+    const panels = detectPanels(gray, AW, AH, rtl);
+    debugPages.push({ gray, AW, AH, natW, natH, panels });
+    return panels;
+  }
+  const debugPages = [];
+  let path = "A";
+
+  // Chế độ chẩn đoán (data-debug="1"): vẽ ảnh đã phân tích + khung ô tìm được
+  function renderDebug() {
+    const box = root.getBoundingClientRect();
+    const c = document.createElement("canvas");
+    c.width = Math.floor(box.width);
+    c.height = Math.floor(box.height);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    const n = debugPages.length || 1;
+    const slotW = c.width / n;
+    const textH = 40;
+    debugPages.forEach((pg, k) => {
+      const sc = Math.min((slotW - 10) / pg.AW, (c.height - textH) / pg.AH);
+      const ox = k * slotW + 5;
+      const img = ctx.createImageData(pg.AW, pg.AH);
+      for (let i = 0; i < pg.gray.length; i++) {
+        const v = pg.gray[i] < 200 ? 0 : 255; // đúng ngưỡng "có mực" của thuật toán
+        img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+        img.data[i * 4 + 3] = 255;
+      }
+      const tmp = document.createElement("canvas");
+      tmp.width = pg.AW;
+      tmp.height = pg.AH;
+      tmp.getContext("2d").putImageData(img, 0, 0);
+      ctx.drawImage(tmp, ox, textH, pg.AW * sc, pg.AH * sc);
+      ctx.lineWidth = 4;
+      pg.panels.forEach((r, q) => {
+        const x = ox + r.x * pg.AW * sc, y = textH + r.y * pg.AH * sc, w = r.w * pg.AW * sc, h = r.h * pg.AH * sc;
+        ctx.strokeStyle = "#000";
+        ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(x, y, 26, 22);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 18px sans-serif";
+        ctx.fillText(String(q + 1), x + 6, y + 18);
+      });
+      ctx.fillStyle = "#000";
+      ctx.font = "bold 16px sans-serif";
+      ctx.fillText("P" + (k + 1) + " " + pg.natW + "x" + pg.natH + " -> " + pg.AW + "x" + pg.AH + " | " + pg.panels.length + " o | " + path, ox, 16);
+      let dark = 0;
+      for (let i = 0; i < pg.gray.length; i++) if (pg.gray[i] < 200) dark++;
+      ctx.fillText("muc " + Math.round((dark * 100) / pg.gray.length) + "%", ox, 34);
+    });
+    root.innerHTML = "";
+    root.appendChild(c);
+    root.dataset.done = "1";
+    status("DEBUG");
   }
 
   function render(pages) {
@@ -257,9 +311,11 @@ export function clientMain() {
   viaImages()
     .catch((e) => {
       log("cách A lỗi:", String((e && e.message) || e), "→ thử cách B");
+      path = "B:" + String((e && e.message) || e).slice(0, 30);
+      debugPages.length = 0;
       return viaFetch();
     })
-    .then(render)
+    .then((pages) => (root.dataset.debug === "1" ? renderDebug() : render(pages)))
     .catch((e) => {
       const msg = String((e && e.message) || e);
       status("⚠ " + msg.slice(0, 40));
