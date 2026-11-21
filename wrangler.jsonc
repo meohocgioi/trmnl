@@ -13,7 +13,8 @@
     "bindings": [{ "name": "STORE", "class_name": "Store" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Store"] }],
-  // Mỗi phút kiểm tra có bản mới không → nhắn change log + làm mới menu lệnh ngay
-  "triggers": { "crons": ["* * * * *"] },
+  // Không chạy định kỳ (tiết kiệm tài nguyên). Change log được nhắn khi TRMNL lấy dữ liệu
+  // (mỗi 15 phút) hoặc ngay khi gõ /update trên bot.
+  "triggers": { "crons": [] },
   "observability": { "enabled": true }
 }
