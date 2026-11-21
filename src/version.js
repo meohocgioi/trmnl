@@ -1,9 +1,19 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.4.3";
+export const VERSION = "1.5.0";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.5.0",
+    date: "2026-11-21",
+    changes: [
+      "🔁 Không lặp lại: trang nào đã lên TRMNL thì 7 ngày sau mới có thể hiện lại",
+      "Plugin TRMNL làm mới mỗi 15 phút (trước: mỗi giờ)",
+      "/new và /search cũng bỏ qua những trang đã hiện",
+      "/settings ghi số trang đã ghi nhớ",
+    ],
+  },
   {
     version: "1.4.3",
     date: "2026-11-21",

@@ -11,7 +11,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { VERSION } from "./version.js";
-import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid } from "./manga.js";
+import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
 import { buildClientScript } from "./panels-client.js";
@@ -116,19 +116,20 @@ async function handleTrmnl(url, env, ctx, store) {
     return json({ ok: false, error: "Thiếu hoặc sai mã khoá. Gõ /url cho bot để lấy link mới dán vào TRMNL." }, 403);
   }
   ctx.waitUntil(botToken(env, store).then((t) => notifyNewVersion(store, t)).catch(() => {}));
-  const [settings, pinned] = await Promise.all([store.getItem("settings"), store.getItem("pin_next")]);
+  const [settings, pinned, history] = await Promise.all([store.getItem("settings"), store.getItem("pin_next"), loadHistory(store)]);
   let result;
   if (pinned && pinned.ok && !url.searchParams.has("nopin")) {
     result = { ...pinned, pinned: true, generated_at: new Date().toISOString() };
     await store.deleteItem("pin_next");
   } else {
     try {
-      result = await pickPages(mergeOptions(settings, url.searchParams), url.origin, store);
+      result = await pickPages(mergeOptions(settings, url.searchParams), url.origin, store, history.avoid);
     } catch (e) {
       return json({ ok: false, error: e.message });
     }
   }
   await store.setItem("last_trmnl", result);
+  await recordHistory(store, history.hist, result); // ghi nhớ để 7 ngày tới không lặp lại
   return json(publicResult(result));
 }
 

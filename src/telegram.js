@@ -14,6 +14,7 @@ import {
   getAuthor,
   readableLanguages,
   unreadableBreakdown,
+  loadHistory,
 } from "./manga.js";
 
 export const COMMANDS = [
@@ -137,8 +138,15 @@ async function onMessage(msg, env) {
     case "author":
       return arg ? doSearch(env, chatId, "a", arg.slice(0, 80), 1, settings) : askQuery(env, chatId, "a");
     case "settings":
-    case "status":
-      return send(token, chatId, settingsText(settings), settingsKeyboard(settings));
+    case "status": {
+      const { avoid } = await loadHistory(store);
+      return send(
+        token,
+        chatId,
+        settingsText(settings) + "\n\n" + hint(`🔁 Không lặp lại trong 7 ngày · đã ghi nhớ ${avoid.size} trang đã hiện`),
+        settingsKeyboard(settings)
+      );
+    }
     case "url": {
       const k = config.accessKey ? `?key=${config.accessKey}` : "";
       return send(
@@ -394,7 +402,8 @@ async function selectResult(env, chatId, kind, id, settings, lang) {
       label = kv("✍️ Tác giả", esc(a.name));
       extra = [kv("📚 Số bộ có bản " + next.lang.toUpperCase(), list.mangas.length)];
     }
-    const r = await pickPages(mergeOptions(next), env.origin, store); // kiểm tra có trang đọc được
+    const { avoid } = await loadHistory(store);
+    const r = await pickPages(mergeOptions(next), env.origin, store, avoid); // kiểm tra có trang đọc được
     await store.setItem("settings", next);
     await store.setItem("pin_next", r);
     await store.setItem(`pick:${r.chapter_id}`, r);
@@ -484,7 +493,8 @@ async function newPick(env, chatId, settings) {
   const { token } = env;
   await tg(token, "sendChatAction", { chat_id: chatId, action: "upload_photo" }).catch(() => {});
   try {
-    const r = await pickPages(mergeOptions(settings), env.origin, env.store);
+    const { avoid } = await loadHistory(env.store);
+    const r = await pickPages(mergeOptions(settings), env.origin, env.store, avoid);
     return sendPick(env, chatId, r);
   } catch (e) {
     return send(token, chatId, errorCard("Không lấy được trang truyện", e.message, "Bấm 🎲 để thử lại."), pickKeyboard(null));

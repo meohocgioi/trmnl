@@ -64,11 +64,35 @@ export function mergeOptions(settings, params) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Lịch sử: không lặp lại trang đã hiện trên TRMNL trong 7 ngày          */
+/* ------------------------------------------------------------------ */
+
+export const NO_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
+const pageKey = (chapterId, idx) => `${chapterId}:${idx}`;
+
+export async function loadHistory(store) {
+  const raw = (await store.getItem("history")) || {};
+  const now = Date.now();
+  const hist = {};
+  for (const [k, t] of Object.entries(raw)) if (now - t < NO_REPEAT_MS) hist[k] = t; // bỏ mục quá 7 ngày
+  return { hist, avoid: new Set(Object.keys(hist)) };
+}
+
+export async function recordHistory(store, hist, r) {
+  if (!r || !r.ok) return;
+  const now = Date.now();
+  hist[pageKey(r.chapter_id, r.page_first - 1)] = now;
+  hist[pageKey(r.chapter_id, r.page_second - 1)] = now;
+  await store.setItem("history", hist);
+}
+
+/* ------------------------------------------------------------------ */
 /* Chọn 2 trang                                                         */
 /* ------------------------------------------------------------------ */
 
-export async function pickPages(o, origin, store) {
+export async function pickPages(o, origin, store, avoid = null) {
   let lastError = null;
+  let exhausted = false; // có chương mà mọi trang đều đã hiện trong 7 ngày
   // Chế độ 1 bộ truyện (chọn từ /search title)
   const single = o.mangaId ? compactManga((await api(`/manga/${o.mangaId}`)).data) : null;
   if (single && single.langs && !single.langs.includes(o.lang)) {
@@ -78,7 +102,7 @@ export async function pickPages(o, origin, store) {
   }
   const byAuthor = !single && o.author ? await authorMangaList(o, store) : null;
   let pool = byAuthor ? byAuthor.mangas.filter((m) => !byAuthor.dead.includes(m.id)) : null;
-  const maxAttempts = single ? 4 : byAuthor ? 15 : MAX_ATTEMPTS;
+  const maxAttempts = single ? 6 : byAuthor ? 15 : MAX_ATTEMPTS;
   let deadChanged = false;
   if (pool && !pool.length) {
     // Bộ nào cũng từng "rỗng" → có thể MangaDex lỗi tạm thời, thử lại từ đầu
@@ -116,7 +140,16 @@ export async function pickPages(o, origin, store) {
         const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
         if (!Array.isArray(files) || files.length < 2) continue;
 
-        const i = Math.floor(Math.random() * (files.length - 1));
+        // Chỉ chọn cặp trang chưa hiện trong 7 ngày qua
+        const cands = [];
+        for (let k = 0; k + 1 < files.length; k++) {
+          if (!avoid || (!avoid.has(pageKey(chapter.id, k)) && !avoid.has(pageKey(chapter.id, k + 1)))) cands.push(k);
+        }
+        if (!cands.length) {
+          exhausted = true;
+          continue;
+        }
+        const i = cands[Math.floor(Math.random() * cands.length)];
         const ca = chapter.attributes || {};
         const meta = {
           manga,
@@ -142,6 +175,8 @@ export async function pickPages(o, origin, store) {
       ? `Chưa tìm được chương ${o.lang.toUpperCase()} đọc được của ${o.author} – sẽ thử bộ khác ở lần sau`
       : `Không tìm được chương phù hợp sau ${maxAttempts} lần thử`
   );
+  // Đã xem hết những gì tìm được trong 7 ngày → cho phép lặp lại còn hơn là báo lỗi
+  if (exhausted && avoid && avoid.size) return pickPages(o, origin, store, null);
   if (single && !lastError) finalError.code = "NO_LANG";
   throw finalError;
 }
