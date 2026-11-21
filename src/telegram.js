@@ -113,12 +113,14 @@ async function onMessage(msg, env) {
     case "settings":
     case "status":
       return send(token, chatId, settingsText(settings), settingsKeyboard(settings));
-    case "url":
+    case "url": {
+      const k = config.accessKey ? `?key=${config.accessKey}` : "";
       return send(
         token,
         chatId,
-        `📋 <b>Polling URL</b> (dán vào plugin TRMNL):\n<code>${esc(env.origin)}/</code>\n\n👀 Xem thử trên trình duyệt:\n${esc(env.origin)}/preview\n\n⚙️ Trang cài đặt:\n${esc(env.origin)}/setup`
+        `📋 <b>Polling URL</b> (dán vào plugin TRMNL):\n<code>${esc(env.origin)}/${k}</code>\n\n👀 Xem thử trên trình duyệt:\n${esc(env.origin)}/preview${k}\n\n⚙️ Trang cài đặt:\n${esc(env.origin)}/setup\n\n🔒 <i>Link có mã khoá riêng – đừng chia sẻ công khai.</i>`
       );
+    }
     case "version":
       return send(token, chatId, changelogText(CHANGELOG[0], true));
     default:

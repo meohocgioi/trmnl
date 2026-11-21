@@ -46,7 +46,7 @@ ${error ? `<p class="err">⚠️ ${esc(error)}</p>` : ""}
     );
   }
   const owner = config.ownerId
-    ? `<p class="ok">✅ Chủ bot: <b>${esc(config.ownerName || config.ownerId)}</b></p>`
+    ? `<p class="ok">✅ Bot đã có chủ.</p>`
     : `<p>👉 Bước cuối: mở bot và bấm <b>Start</b>. Người bấm Start <b>đầu tiên</b> sẽ thành chủ bot.</p>
        ${bot ? `<p><a class="btn" href="https://t.me/${esc(bot.username)}" target="_blank">Mở @${esc(bot.username)}</a></p>` : ""}`;
   return shell(
@@ -58,9 +58,8 @@ ${error ? `<p class="err">⚠️ ${esc(error)}</p>` : ""}
 <p>${webhook && webhook.url ? `<span class="ok">✅ Đã nối bot với Worker</span>` : `<span class="err">⚠️ Chưa nối bot với Worker</span>`}
 ${webhook && webhook.last_error_message ? `<br><span class="err">Lỗi gần nhất: ${esc(webhook.last_error_message)}</span>` : ""}</p>
 ${owner}
-<h3>Dán vào TRMNL (ô Polling URL)</h3>
-<p><code>${esc(origin)}/</code></p>
-<p><a href="/preview">👀 Xem thử 2 trang truyện</a></p>
+<h3>Link cho TRMNL</h3>
+<p>Gõ <code>/url</code> cho bot để lấy link riêng (có mã khoá) dán vào TRMNL và link xem thử.</p>
 <form method="post" action="/setup"><input type="hidden" name="action" value="rewebhook">
 <button type="submit">Nối lại bot (nếu bot không trả lời)</button></form>`
   );

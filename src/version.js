@@ -1,8 +1,17 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.0.0";
+export const VERSION = "1.0.1";
 
 export const CHANGELOG = [
+  {
+    version: "1.0.1",
+    date: "2026-11-21",
+    changes: [
+      "🔒 Link TRMNL và /preview giờ có mã khoá riêng – người lạ đoán ra link cũng không dùng được",
+      "👉 Gõ /url để lấy link mới (có ?key=…) rồi dán lại vào ô Polling URL của TRMNL",
+      "Trang /setup không còn hiện tên Telegram của chủ bot",
+    ],
+  },
   {
     version: "1.0.0",
     date: "2026-11-21",

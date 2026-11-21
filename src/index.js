@@ -43,6 +43,7 @@ export default {
         case "/img":
           return await handleImage(url, ctx);
         case "/preview": {
+          if (!(await keyOk(url, store))) return html(previewPage({ ok: false, error: "Link thiếu mã khoá. Gõ /url cho bot để lấy link xem thử." }), 403);
           const settings = await store.getItem("settings");
           let d;
           try {
@@ -81,6 +82,9 @@ export default {
 /* ------------------------------------------------------------------ */
 
 async function handleTrmnl(url, env, ctx, store) {
+  if (!(await keyOk(url, store))) {
+    return json({ ok: false, error: "Thiếu hoặc sai mã khoá. Gõ /url cho bot để lấy link mới dán vào TRMNL." }, 403);
+  }
   ctx.waitUntil(botToken(env, store).then((t) => notifyNewVersion(store, t)).catch(() => {}));
   const [settings, pinned] = await Promise.all([store.getItem("settings"), store.getItem("pin_next")]);
   let result;
@@ -104,6 +108,7 @@ async function handleWebhook(request, url, env, ctx, store) {
   const secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
   if (!config.webhookSecret || secret !== config.webhookSecret) return new Response("Forbidden", { status: 403 });
   const token = await botToken(env, store);
+  await ensureAccessKey(store);
   const update = await request.json().catch(() => null);
   if (!update || !token) return new Response("OK");
   // Trả lời Telegram ngay, xử lý phía sau (lấy ảnh từ MangaDex có thể mất vài giây)
@@ -165,7 +170,7 @@ async function handleSetup(request, url, env, store) {
 
 async function registerWebhook(token, origin, store) {
   const config = (await store.getItem("config")) || {};
-  const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const secret = randomHex(24);
   await tg(token, "setWebhook", {
     url: `${origin}/tg`,
     secret_token: secret,
@@ -175,9 +180,28 @@ async function registerWebhook(token, origin, store) {
   config.webhookSecret = secret;
   config.origin = origin;
   await store.setItem("config", config);
+  await ensureAccessKey(store);
   await tg(token, "setMyCommands", {
     commands: COMMANDS.map(([command, description]) => ({ command, description })),
   }).catch(() => {});
+}
+
+// Mã khoá riêng: sau khi cài bot, link TRMNL & /preview phải có ?key=… (lấy bằng lệnh /url)
+async function ensureAccessKey(store) {
+  const config = (await store.getItem("config")) || {};
+  if (config.accessKey) return config.accessKey;
+  config.accessKey = randomHex(12);
+  await store.setItem("config", config);
+  return config.accessKey;
+}
+
+async function keyOk(url, store) {
+  const config = (await store.getItem("config")) || {};
+  return !config.accessKey || url.searchParams.get("key") === config.accessKey;
+}
+
+function randomHex(bytes) {
+  return [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function botToken(env, store) {
@@ -197,8 +221,9 @@ function json(obj, status = 200) {
   });
 }
 
-function html(body) {
+function html(body, status = 200) {
   return new Response(body, {
+    status,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
   });
 }

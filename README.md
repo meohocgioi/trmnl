@@ -52,12 +52,19 @@ Dưới mỗi cặp trang có nút: **🎲 Cặp khác** · **▶️ 2 trang ti�
 
 | Đường dẫn | Dùng để |
 |---|---|
-| `/` | JSON cho TRMNL (Polling URL) |
-| `/preview` | Xem thử khung 800×480 trên trình duyệt |
+| `/?key=…` | JSON cho TRMNL (Polling URL) – lấy link đầy đủ bằng lệnh `/url` |
+| `/preview?key=…` | Xem thử khung 800×480 trên trình duyệt |
 | `/setup` | Trang cài đặt bot / nối lại bot |
 | `/img` | Proxy ảnh (MangaDex không cho lấy ảnh trực tiếp) |
 
-Có thể thêm tham số vào URL để ghi đè cài đặt, ví dụ `/?mode=random`, `/?rating=safe`, `/?dir=ltr`.
+Có thể thêm tham số vào URL để ghi đè cài đặt, ví dụ `&mode=random`, `&rating=safe`, `&dir=ltr`.
+
+## Bảo mật
+- Repo công khai chỉ cho người khác **xem** code; chỉ chủ repo (và người được cấp quyền) mới sửa được. Đừng merge Pull Request của người lạ.
+- **Không có token/mật khẩu nào trong code.** Token bot được lưu trong Cloudflare.
+- Sau khi cài bot, link TRMNL và `/preview` cần **mã khoá riêng** (`?key=…`) – người lạ đoán ra địa chỉ cũng không dùng được.
+- Lệnh Telegram chỉ nhận từ chủ bot; webhook có mã bí mật nên không giả mạo được.
+- Nên bật **xác minh 2 bước (2FA)** cho GitHub và Cloudflare.
 
 ## Gặp lỗi?
 - **Bot không trả lời** → mở `/setup` → bấm **Nối lại bot**.
