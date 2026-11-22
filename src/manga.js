@@ -71,26 +71,41 @@ export const NO_REPEAT_MS = 7 * 24 * 60 * 60 * 1000;
 const pageKey = (chapterId, idx) => `${chapterId}:${idx}`;
 
 export async function loadHistory(store) {
-  const raw = (await store.getItem("history")) || {};
+  const [raw, rawSeeds] = await Promise.all([store.getItem("history"), store.getItem("seeds")]);
   const now = Date.now();
   const hist = {};
-  for (const [k, t] of Object.entries(raw)) if (now - t < NO_REPEAT_MS) hist[k] = t; // bỏ mục quá 7 ngày
-  return { hist, avoid: new Set(Object.keys(hist)) };
+  for (const [k, t] of Object.entries(raw || {})) if (now - t < NO_REPEAT_MS) hist[k] = t; // bỏ mục quá 7 ngày
+  const seeds = {};
+  for (const [k, v] of Object.entries(rawSeeds || {})) if (v && now - v.t < NO_REPEAT_MS) seeds[k] = v;
+  return { hist, seeds, avoid: new Set(Object.keys(hist)) };
 }
 
-export async function recordHistory(store, hist, r) {
+// Ghi nhớ trang đã hiện. Nếu cặp trang này từng hiện rồi (buộc phải lặp) → đổi seed để TRMNL chọn ô KHÁC
+export async function recordHistory(store, history, r) {
   if (!r || !r.ok) return;
   const now = Date.now();
-  hist[pageKey(r.chapter_id, r.page_first - 1)] = now;
-  hist[pageKey(r.chapter_id, r.page_second - 1)] = now;
-  await store.setItem("history", hist);
+  const pair = pageKey(r.chapter_id, r.page_first - 1);
+  const prev = history.seeds[pair];
+  if (prev) r.panel_seed = prev.s + 1; // xoay vòng sang ô kế tiếp
+  history.seeds[pair] = { s: r.panel_seed, t: now };
+  history.hist[pageKey(r.chapter_id, r.page_first - 1)] = now;
+  history.hist[pageKey(r.chapter_id, r.page_second - 1)] = now;
+  await Promise.all([store.setItem("history", history.hist), store.setItem("seeds", history.seeds)]);
+}
+
+// Chương còn ít nhất 1 cặp trang chưa hiện trong 7 ngày? (dựa vào số trang MangaDex cho biết)
+function hasFreshPair(c, avoid) {
+  const n = (c.attributes || {}).pages;
+  if (typeof n !== "number") return true; // không rõ số trang → cứ thử
+  for (let k = 0; k + 1 < n; k++) if (!avoid.has(pageKey(c.id, k)) && !avoid.has(pageKey(c.id, k + 1))) return true;
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
 /* Chọn 2 trang                                                         */
 /* ------------------------------------------------------------------ */
 
-export async function pickPages(o, origin, store, avoid = null) {
+export async function pickPages(o, origin, store, avoid = null, hist = null) {
   let lastError = null;
   let exhausted = false; // có chương mà mọi trang đều đã hiện trong 7 ngày
   // Chế độ 1 bộ truyện (chọn từ /search title)
@@ -128,8 +143,14 @@ export async function pickPages(o, origin, store, avoid = null) {
         }
         if (!single && !o.longStrip && manga.longStrip) continue;
 
-        const chapter = await randomChapter(manga.id, o);
+        const rc = await randomChapter(manga.id, o, avoid, !!single);
+        const chapter = rc.chapter;
         if (!chapter) {
+          if (rc.usable.length) {
+            exhausted = true; // có chương đọc được nhưng đã xem hết trong 7 ngày
+            if (single) break; // 1 bộ: đã duyệt hết danh sách chương → khỏi thử lại
+            continue;
+          }
           if (byAuthor) {
             byAuthor.dead.push(manga.id);
             deadChanged = true;
@@ -175,8 +196,11 @@ export async function pickPages(o, origin, store, avoid = null) {
       ? `Chưa tìm được chương ${o.lang.toUpperCase()} đọc được của ${o.author} – sẽ thử bộ khác ở lần sau`
       : `Không tìm được chương phù hợp sau ${maxAttempts} lần thử`
   );
-  // Đã xem hết những gì tìm được trong 7 ngày → cho phép lặp lại còn hơn là báo lỗi
-  if (exhausted && avoid && avoid.size) return pickPages(o, origin, store, null);
+  // Đã xem hết trong 7 ngày → 1 bộ: lặp lại cặp trang CŨ NHẤT; chế độ khác: chọn lại không giới hạn
+  if (exhausted && avoid && avoid.size) {
+    if (single) return leastRecentPick(single, o, origin, hist || {});
+    return pickPages(o, origin, store, null);
+  }
   if (single && !lastError) finalError.code = "NO_LANG";
   throw finalError;
 }
@@ -265,36 +289,80 @@ export function publicResult(r) {
   return rest;
 }
 
-async function randomChapter(mangaId, o) {
+async function chapterFeed(mangaId, o, limit, offset) {
   const base = [["translatedLanguage[]", o.lang], ["includes[]", "scanlation_group"]];
   const strict = [["includeExternalUrl", "0"], ["includeEmptyPages", "0"], ["includeFuturePublishAt", "0"]];
-  const feed = async (limit, offset) => {
-    const paging = [["limit", String(limit)], ["offset", String(offset)]];
-    try {
-      return await api(`/manga/${mangaId}/feed`, [...base, ...strict, ...paging]);
-    } catch (e) {
-      if (e.status === 400) return api(`/manga/${mangaId}/feed`, [...base, ...paging]);
-      throw e;
-    }
-  };
-  const PAGE = 100;
-  let res = await feed(PAGE, 0);
-  let list = res.data || [];
-  const total = Math.min(Number(res.total) || list.length, 10000);
-  if (total > list.length) {
-    const offset = Math.floor(Math.random() * (total - PAGE + 1));
-    await sleep(200);
-    res = await feed(PAGE, offset);
-    list = res.data || [];
+  const paging = [["limit", String(limit)], ["offset", String(offset)]];
+  try {
+    return await api(`/manga/${mangaId}/feed`, [...base, ...strict, ...paging]);
+  } catch (e) {
+    if (e.status === 400) return api(`/manga/${mangaId}/feed`, [...base, ...paging]);
+    throw e;
   }
-  const usable = list.filter((c) => {
+}
+
+function usableChapters(list, o) {
+  return list.filter((c) => {
     const at = c.attributes || {};
-    if (at.externalUrl) return false;
+    if (at.externalUrl || at.isUnavailable) return false;
     if (typeof at.pages === "number" && at.pages < 2) return false;
     if (at.translatedLanguage && at.translatedLanguage !== o.lang) return false;
     return true;
   });
-  return usable.length ? usable[Math.floor(Math.random() * usable.length)] : null;
+}
+
+// Trả về { chapter, usable }: chapter = 1 chương ngẫu nhiên CÒN cặp trang chưa hiện (null nếu hết)
+async function randomChapter(mangaId, o, avoid = null, full = false) {
+  let list;
+  if (full) {
+    // 1 bộ truyện: lấy cả danh sách (tối đa 500 chương) để biết chính xác còn gì chưa xem
+    list = (await chapterFeed(mangaId, o, 500, 0)).data || [];
+  } else {
+    const PAGE = 100;
+    let res = await chapterFeed(mangaId, o, PAGE, 0);
+    list = res.data || [];
+    const total = Math.min(Number(res.total) || list.length, 10000);
+    if (total > list.length) {
+      const offset = Math.floor(Math.random() * (total - PAGE + 1));
+      await sleep(200);
+      res = await chapterFeed(mangaId, o, PAGE, offset);
+      list = res.data || [];
+    }
+  }
+  const usable = usableChapters(list, o);
+  const fresh = avoid && avoid.size ? usable.filter((c) => hasFreshPair(c, avoid)) : usable;
+  return { chapter: fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : null, usable };
+}
+
+// Mọi cặp trang của bộ này đều đã hiện trong 7 ngày → lấy cặp đã lâu chưa hiện nhất
+async function leastRecentPick(manga, o, origin, hist) {
+  const usable = usableChapters((await chapterFeed(manga.id, o, 500, 0)).data || [], o);
+  let best = null;
+  for (const c of usable) {
+    const n = (c.attributes || {}).pages || 2;
+    for (let k = 0; k + 1 < n; k++) {
+      const t = Math.max(hist[pageKey(c.id, k)] || 0, hist[pageKey(c.id, k + 1)] || 0);
+      if (!best || t < best.t) best = { c, k, t };
+    }
+  }
+  if (!best) throw new Error(`"${manga.title}" chưa có chương ${o.lang.toUpperCase()} đọc được trên MangaDex`);
+  const home = await atHome(best.c.id);
+  const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
+  const i = Math.max(0, Math.min(best.k, files.length - 2));
+  const ca = best.c.attributes || {};
+  const meta = { manga, chapter: { id: best.c.id, label: chapterLabel(ca), title: ca.title || "", group: groupName(best.c) }, author: "", authorTitles: 0 };
+  const r = buildResult(meta, home, i, o, origin, 0);
+  r.repeat = true; // đánh dấu: lặp lại cặp cũ nhất
+  return r;
+}
+
+// Đếm số trang đọc được của 1 bộ (để báo trước khi nào bắt đầu lặp)
+export async function readablePageCount(mangaId, lang) {
+  const usable = usableChapters((await chapterFeed(mangaId, { lang }, 500, 0)).data || [], { lang });
+  return {
+    chapters: usable.length,
+    pages: usable.reduce((n, c) => n + (typeof c.attributes.pages === "number" ? c.attributes.pages : 0), 0),
+  };
 }
 
 /* ------------------------------------------------------------------ */

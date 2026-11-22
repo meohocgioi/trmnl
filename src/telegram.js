@@ -15,6 +15,7 @@ import {
   readableLanguages,
   unreadableBreakdown,
   loadHistory,
+  readablePageCount,
 } from "./manga.js";
 
 export const COMMANDS = [
@@ -402,8 +403,22 @@ async function selectResult(env, chatId, kind, id, settings, lang) {
       label = kv("✍️ Tác giả", esc(a.name));
       extra = [kv("📚 Số bộ có bản " + next.lang.toUpperCase(), list.mangas.length)];
     }
-    const { avoid } = await loadHistory(store);
-    const r = await pickPages(mergeOptions(next), env.origin, store, avoid); // kiểm tra có trang đọc được
+    const { avoid, hist } = await loadHistory(store);
+    const r = await pickPages(mergeOptions(next), env.origin, store, avoid, hist); // kiểm tra có trang đọc được
+    if (kind === "m") {
+      // Bộ ngắn → báo trước khi nào bắt đầu lặp lại (mỗi lần làm mới dùng ~2 trang, 15 phút/lần)
+      try {
+        const cnt = await readablePageCount(id, mergeOptions(next).lang);
+        const pairs = Math.max(1, Math.floor(cnt.pages / 2));
+        const hours = (pairs * 15) / 60;
+        extra.push(kv("📄 Đọc được", `${cnt.chapters} chương · ${cnt.pages} trang`));
+        if (pairs * 15 < 7 * 24 * 60) {
+          extra.push(
+            `⚠️ Bộ ngắn: sau khoảng <b>${hours < 24 ? Math.round(hours) + " giờ" : Math.round(hours / 24) + " ngày"}</b> sẽ hết trang mới → TRMNL lặp lại cặp trang cũ nhất và chọn ô khác trong đó.`
+          );
+        }
+      } catch (_) {}
+    }
     await store.setItem("settings", next);
     await store.setItem("pin_next", r);
     await store.setItem(`pick:${r.chapter_id}`, r);
@@ -493,8 +508,8 @@ async function newPick(env, chatId, settings) {
   const { token } = env;
   await tg(token, "sendChatAction", { chat_id: chatId, action: "upload_photo" }).catch(() => {});
   try {
-    const { avoid } = await loadHistory(env.store);
-    const r = await pickPages(mergeOptions(settings), env.origin, env.store, avoid);
+    const { avoid, hist } = await loadHistory(env.store);
+    const r = await pickPages(mergeOptions(settings), env.origin, env.store, avoid, hist);
     return sendPick(env, chatId, r);
   } catch (e) {
     return send(token, chatId, errorCard("Không lấy được trang truyện", e.message, "Bấm 🎲 để thử lại."), pickKeyboard(null));

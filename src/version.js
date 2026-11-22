@@ -1,9 +1,18 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.5.1";
+export const VERSION = "1.5.2";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.5.2",
+    date: "2026-11-23",
+    changes: [
+      "🔁 Sửa lỗi lặp ô truyện: chọn chính xác chương còn trang chưa hiện (trước đây chỉ thử ngẫu nhiên 6 chương)",
+      "Bộ truyện đã xem hết trong tuần → lặp cặp trang CŨ NHẤT và chọn ô KHÁC trong đó (không còn trùng y hệt lần trước)",
+      "Chọn bộ qua /search: báo số trang đọc được và khi nào sẽ bắt đầu lặp lại",
+    ],
+  },
   {
     version: "1.5.1",
     date: "2026-11-22",

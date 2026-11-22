@@ -123,13 +123,13 @@ async function handleTrmnl(url, env, ctx, store) {
     await store.deleteItem("pin_next");
   } else {
     try {
-      result = await pickPages(mergeOptions(settings, url.searchParams), url.origin, store, history.avoid);
+      result = await pickPages(mergeOptions(settings, url.searchParams), url.origin, store, history.avoid, history.hist);
     } catch (e) {
       return json({ ok: false, error: e.message });
     }
   }
+  await recordHistory(store, history, result); // ghi nhớ 7 ngày; nếu lặp cặp cũ → đổi sang ô khác
   await store.setItem("last_trmnl", result);
-  await recordHistory(store, history.hist, result); // ghi nhớ để 7 ngày tới không lặp lại
   return json(publicResult(result));
 }
 
