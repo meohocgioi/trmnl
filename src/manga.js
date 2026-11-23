@@ -90,7 +90,16 @@ export async function recordHistory(store, history, r) {
   history.seeds[pair] = { s: r.panel_seed, t: now };
   history.hist[pageKey(r.chapter_id, r.page_first - 1)] = now;
   history.hist[pageKey(r.chapter_id, r.page_second - 1)] = now;
+  for (const h of r.page_hashes || []) if (h) history.hist[h] = now; // nội dung ảnh
   await Promise.all([store.setItem("history", history.hist), store.setItem("seeds", history.seeds)]);
+}
+
+// Mã băm nội dung ảnh (tên file MangaDex = "<số>-<sha256>.<đuôi>").
+// Nhóm dịch hay đăng lại CÙNG 1 trang ở nhiều chương → nhận diện theo nội dung, không theo số trang.
+export function pageHash(home, idx) {
+  const f = (home.chapter.data && home.chapter.data[idx]) || (home.chapter.dataSaver && home.chapter.dataSaver[idx]) || "";
+  const m = /-([0-9a-f]{16,})\./i.exec(f);
+  return m ? "h:" + m[1].slice(0, 32) : "";
 }
 
 // Chương còn ít nhất 1 cặp trang chưa hiện trong 7 ngày? (dựa vào số trang MangaDex cho biết)
@@ -108,6 +117,7 @@ function hasFreshPair(c, avoid) {
 export async function pickPages(o, origin, store, avoid = null, hist = null) {
   let lastError = null;
   let exhausted = false; // có chương mà mọi trang đều đã hiện trong 7 ngày
+  const tried = new Set(); // chương đã thử mà không còn cặp trang mới
   // Chế độ 1 bộ truyện (chọn từ /search title)
   const single = o.mangaId ? compactManga((await api(`/manga/${o.mangaId}`)).data) : null;
   if (single && single.langs && !single.langs.includes(o.lang)) {
@@ -117,7 +127,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
   }
   const byAuthor = !single && o.author ? await authorMangaList(o, store) : null;
   let pool = byAuthor ? byAuthor.mangas.filter((m) => !byAuthor.dead.includes(m.id)) : null;
-  const maxAttempts = single ? 6 : byAuthor ? 15 : MAX_ATTEMPTS;
+  const maxAttempts = single ? 12 : byAuthor ? 15 : MAX_ATTEMPTS;
   let deadChanged = false;
   if (pool && !pool.length) {
     // Bộ nào cũng từng "rỗng" → có thể MangaDex lỗi tạm thời, thử lại từ đầu
@@ -143,7 +153,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
         }
         if (!single && !o.longStrip && manga.longStrip) continue;
 
-        const rc = await randomChapter(manga.id, o, avoid, !!single);
+        const rc = await randomChapter(manga.id, o, avoid, !!single, tried);
         const chapter = rc.chapter;
         if (!chapter) {
           if (rc.usable.length) {
@@ -162,12 +172,12 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
         if (!Array.isArray(files) || files.length < 2) continue;
 
         // Chỉ chọn cặp trang chưa hiện trong 7 ngày qua
+        const seen = (k) => avoid && (avoid.has(pageKey(chapter.id, k)) || avoid.has(pageHash(home, k)));
         const cands = [];
-        for (let k = 0; k + 1 < files.length; k++) {
-          if (!avoid || (!avoid.has(pageKey(chapter.id, k)) && !avoid.has(pageKey(chapter.id, k + 1)))) cands.push(k);
-        }
+        for (let k = 0; k + 1 < files.length; k++) if (!seen(k) && !seen(k + 1)) cands.push(k);
         if (!cands.length) {
           exhausted = true;
+          tried.add(chapter.id); // chương này toàn trang đã xem (kể cả trang đăng lại) → đừng bốc lại
           continue;
         }
         const i = cands[Math.floor(Math.random() * cands.length)];
@@ -245,6 +255,7 @@ function buildResult(meta, home, i, o, origin, attempts) {
     group: chapter.group,
     credit: chapter.group ? `${chapter.group} · MangaDex` : "MangaDex",
     pages_total: files.length,
+    page_hashes: [pageHash(home, i), pageHash(home, i + 1)],
     page_first: first.page,
     page_second: second.page,
     first_image: first.image,
@@ -312,7 +323,7 @@ function usableChapters(list, o) {
 }
 
 // Trả về { chapter, usable }: chapter = 1 chương ngẫu nhiên CÒN cặp trang chưa hiện (null nếu hết)
-async function randomChapter(mangaId, o, avoid = null, full = false) {
+async function randomChapter(mangaId, o, avoid = null, full = false, tried = null) {
   let list;
   if (full) {
     // 1 bộ truyện: lấy cả danh sách (tối đa 500 chương) để biết chính xác còn gì chưa xem
@@ -330,7 +341,8 @@ async function randomChapter(mangaId, o, avoid = null, full = false) {
     }
   }
   const usable = usableChapters(list, o);
-  const fresh = avoid && avoid.size ? usable.filter((c) => hasFreshPair(c, avoid)) : usable;
+  let fresh = avoid && avoid.size ? usable.filter((c) => hasFreshPair(c, avoid)) : usable;
+  if (tried && tried.size) fresh = fresh.filter((c) => !tried.has(c.id));
   return { chapter: fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : null, usable };
 }
 
