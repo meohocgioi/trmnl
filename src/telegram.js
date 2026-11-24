@@ -16,7 +16,9 @@ import {
   unreadableBreakdown,
   loadHistory,
   readablePageCount,
+  atHome,
 } from "./manga.js";
+import { loadFp, saveFp, addBlock, removeBlock, pageFingerprint } from "./fingerprint.js";
 
 export const COMMANDS = [
   ["now", "2 trang đang hiện trên TRMNL"],
@@ -28,6 +30,7 @@ export const COMMANDS = [
   ["random", "Ngẫu nhiên toàn bộ MangaDex"],
   ["settings", "Xem & chỉnh cài đặt"],
   ["url", "Link dán vào TRMNL + link xem thử"],
+  ["block", "Chặn trang credit / quảng cáo nhóm dịch"],
   ["lab", "So sánh cách chọn ô truyện (10 ví dụ)"],
   ["update", "Cập nhật bot / kiểm tra bản mới"],
   ["version", "Phiên bản & change log"],
@@ -149,6 +152,8 @@ async function onMessage(msg, env) {
         settingsKeyboard(settings)
       );
     }
+    case "block":
+      return blockMenu(env, chatId);
     case "lab": {
       if (!config.accessKey) return send(token, chatId, card("⚠️", "Chưa có mã khoá", "Gõ /url trước để tạo link."));
       return send(
@@ -197,6 +202,15 @@ async function onCallback(cq, env) {
   const ack = (text) => tg(token, "answerCallbackQuery", { callback_query_id: cq.id, text }).catch(() => {});
 
   if (data === "noop") return ack("");
+  if (data === "blkm") {
+    await ack("");
+    return blockMenu(env, chatId);
+  }
+  if (/^u?blk:[01]$/.test(data)) {
+    const undo = data[0] === "u";
+    await ack(undo ? "Đang bỏ chặn…" : "Đang chặn…");
+    return blockPage(env, chatId, Number(data.slice(-1)), undo);
+  }
   if (data === "srch") {
     await ack("");
     return send(token, chatId, card("🔎", "Tìm truyện cho TRMNL", hint("Chọn một kiểu tìm bên dưới.")), searchStartKeyboard());
@@ -580,7 +594,7 @@ function pickKeyboard(r) {
   const row = [{ text: "🎲 Cặp khác", callback_data: "new" }];
   if (r && r.page_second + 2 <= r.pages_total) row.push({ text: "▶️ 2 trang tiếp", callback_data: `nx:${r.chapter_id}` });
   const rows = [row];
-  if (r) rows.push([{ text: "📌 Lên TRMNL lần tới", callback_data: `pin:${r.chapter_id}` }]);
+  if (r) rows.push([{ text: "📌 Lên TRMNL lần tới", callback_data: `pin:${r.chapter_id}` }, { text: "🚫 Chặn trang", callback_data: "blkm" }]);
   return { inline_keyboard: rows };
 }
 
@@ -757,4 +771,88 @@ export async function notifyNewVersion(store, token) {
   await store.setItem("config", config);
   await refreshCommands(token);
   await send(token, config.ownerId, changelogText(CHANGELOG[0]));
+}
+
+/* ---------- 🚫 Chặn trang credit / quảng cáo của nhóm dịch ---------- */
+async function lastShownFp(store, idx) {
+  const last = await store.getItem("last_trmnl");
+  if (!last || !last.ok) return { last: null, h: null };
+  let h = last.page_fps && last.page_fps[idx];
+  if (!h) {
+    try {
+      h = await pageFingerprint(await atHome(last.chapter_id), last.page_first - 1 + idx);
+    } catch (_) {
+      h = null;
+    }
+  }
+  return { last, h };
+}
+
+async function blockMenu(env, chatId) {
+  const { token, store } = env;
+  const last = await store.getItem("last_trmnl");
+  const fp = await loadFp(store);
+  const auto = fp.block.filter((b) => b.why === "auto").length;
+  const manual = fp.block.length - auto;
+  const stats = quote([
+    `🤖 Tự phát hiện: <b>${auto}</b> trang (cùng 1 hình xuất hiện ở nhiều chương)`,
+    `✋ Bạn chặn: <b>${manual}</b> trang`,
+  ]);
+  if (!last || !last.ok) return send(token, chatId, card("🚫", "Chặn trang credit", stats, hint("TRMNL chưa hiện trang nào để chặn.")));
+  try {
+    await tg(token, "sendMediaGroup", {
+      chat_id: chatId,
+      media: [
+        { type: "photo", media: last.tg_first_image || last.first_image, caption: `Trang ${last.page_first}` },
+        { type: "photo", media: last.tg_second_image || last.second_image, caption: `Trang ${last.page_second}` },
+      ],
+    });
+  } catch (_) {}
+  return send(
+    token,
+    chatId,
+    card(
+      "🚫",
+      "Chặn trang credit / quảng cáo",
+      `Đang hiện trên TRMNL: <b>${esc(last.manga_title)}</b> · ${esc(last.chapter_label)} · trang ${last.page_first}–${last.page_second}`,
+      stats,
+      hint("Chọn trang muốn chặn. Mọi bản sao của hình đó (ở mọi chương, mọi bộ) sẽ không bao giờ hiện nữa.")
+    ),
+    {
+      inline_keyboard: [
+        [
+          { text: `🚫 Chặn trang ${last.page_first}`, callback_data: "blk:0" },
+          { text: `🚫 Chặn trang ${last.page_second}`, callback_data: "blk:1" },
+        ],
+        [{ text: "🎲 Đổi cặp khác ngay", callback_data: "new" }],
+      ],
+    }
+  );
+}
+
+async function blockPage(env, chatId, idx, undo) {
+  const { token, store } = env;
+  const { last, h } = await lastShownFp(store, idx);
+  const page = last ? last.page_first + idx : "?";
+  if (!h) return send(token, chatId, errorCard("Không lấy được hình của trang này", "Trang có thể không phải ảnh JPEG. Thử lại sau nhé."));
+  const fp = await loadFp(store);
+  if (undo) {
+    const n = removeBlock(fp, h);
+    await saveFp(store, fp);
+    return send(token, chatId, card("↩️", n ? `Đã bỏ chặn trang ${page}` : "Trang này chưa bị chặn"));
+  }
+  const added = addBlock(fp, h, "manual", `${last.manga_title} · ${last.chapter_label} · p.${page}`);
+  await saveFp(store, fp);
+  await store.deleteItem("pin_next").catch(() => {});
+  return send(
+    token,
+    chatId,
+    card(
+      "✅",
+      added ? `Đã chặn trang ${page}` : `Trang ${page} đã bị chặn từ trước`,
+      quote([`${esc(last.manga_title)} · ${esc(last.chapter_label)}`, "Hình này (và bản sao ở chương khác) sẽ không hiện trên TRMNL nữa."]),
+      hint("Bấm nút sau lưng TRMNL để đổi hình ngay.")
+    ),
+    { inline_keyboard: [[{ text: "↩️ Bỏ chặn", callback_data: `ublk:${idx}` }]] }
+  );
 }

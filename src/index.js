@@ -11,7 +11,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { VERSION } from "./version.js";
-import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory } from "./manga.js";
+import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory, scanRecurring } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
 import { buildClientScript } from "./panels-client.js";
@@ -136,6 +136,10 @@ async function handleTrmnl(url, env, ctx, store) {
   }
   await recordHistory(store, history, result); // ghi nhớ 7 ngày; nếu lặp cặp cũ → đổi sang ô khác
   await store.setItem("last_trmnl", result);
+  // Chạy nền: quét trước trang credit của bộ đang hiện (1 lần/tuần/bộ)
+  if (result && result.ok && result.manga_id) {
+    ctx.waitUntil(scanRecurring(result.manga_id, result.manga_title, mergeOptions(settings), store).catch(() => {}));
+  }
   // Tạm thời: kèm kết quả /lab mới nhất (trong 3 giờ) để Claude đọc qua TRMNL và tinh chỉnh thuật toán
   const out = publicResult(result);
   const lv = (await store.getItem("lab_votes")) || [];

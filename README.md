@@ -48,6 +48,8 @@ Xong! 🎉
 | `/settings` | Chỉnh nội dung (safe/suggestive…), hướng đọc, chất lượng ảnh bằng nút bấm |
 | `/url` | Link dán vào TRMNL + link xem thử |
 | `/update` | Làm mới menu lệnh + kiểm tra bản mới trên GitHub |
+| `/block` | Chặn trang credit / quảng cáo nhóm dịch đang hiện (trang lặp lại ở nhiều chương cũng tự bị chặn) |
+| `/lab` | So sánh các cách chọn ô truyện (10 ví dụ) để tinh chỉnh thuật toán |
 | `/version` | Phiên bản & change log |
 
 Dưới mỗi cặp trang có nút: **🎲 Cặp khác** · **▶️ 2 trang tiếp** · **📌 Lên TRMNL lần tới** (cặp này sẽ hiện ở lần làm mới tiếp theo của TRMNL).

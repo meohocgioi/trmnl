@@ -1,6 +1,7 @@
 // Lấy trang truyện từ MangaDex: chọn bộ / chương / 2 trang liên tiếp + proxy ảnh
 import { VERSION } from "./version.js";
 import { clientScriptBase64 } from "./panels-client.js";
+import { pageFingerprint, loadFp, saveFp, learnPage } from "./fingerprint.js";
 
 const API = "https://api.mangadex.org";
 export const UA = `TRMNL-MangaDex-Pages/${VERSION} (personal e-ink display; Cloudflare Worker)`;
@@ -118,6 +119,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
   let lastError = null;
   let exhausted = false; // có chương mà mọi trang đều đã hiện trong 7 ngày
   const tried = new Set(); // chương đã thử mà không còn cặp trang mới
+  const fpState = store ? await loadFp(store).catch(() => null) : null; // trang credit đã học
   // Chế độ 1 bộ truyện (chọn từ /search title)
   const single = o.mangaId ? compactManga((await api(`/manga/${o.mangaId}`)).data) : null;
   if (single && single.langs && !single.langs.includes(o.lang)) {
@@ -180,15 +182,41 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
           tried.add(chapter.id); // chương này toàn trang đã xem (kể cả trang đăng lại) → đừng bốc lại
           continue;
         }
-        const i = cands[Math.floor(Math.random() * cands.length)];
+        // Bỏ trang credit / quảng cáo nhóm dịch (nhận theo HÌNH, dù mỗi chương là 1 file khác)
         const ca = chapter.attributes || {};
+        const bad = new Set();
+        let i = null;
+        let pageFps = [];
+        for (let t = 0; t < 4 && cands.length; t++) {
+          const k = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
+          if (bad.has(k) || bad.has(k + 1)) continue;
+          const fps = await Promise.all([pageFingerprint(home, k), pageFingerprint(home, k + 1)]);
+          const label = `${manga.title} · ${chapterLabel(ca)} · p.`;
+          const b0 = fpState ? learnPage(fpState, fps[0], chapter.id, ca.chapter, label + (k + 1)) : false;
+          const b1 = fpState ? learnPage(fpState, fps[1], chapter.id, ca.chapter, label + (k + 2)) : false;
+          if (b0) bad.add(k);
+          if (b1) bad.add(k + 1);
+          if (!b0 && !b1) {
+            i = k;
+            pageFps = fps;
+            break;
+          }
+          for (let j = cands.length - 1; j >= 0; j--) if (bad.has(cands[j]) || bad.has(cands[j] + 1)) cands.splice(j, 1);
+        }
+        if (i === null) {
+          exhausted = true;
+          tried.add(chapter.id);
+          continue;
+        }
         const meta = {
           manga,
           chapter: { id: chapter.id, label: chapterLabel(ca), title: ca.title || "", group: groupName(chapter) },
           author: byAuthor ? byAuthor.authorName : "",
           authorTitles: byAuthor ? byAuthor.mangas.length : 0,
         };
-        return buildResult(meta, home, i, o, origin, attempt);
+        const res = buildResult(meta, home, i, o, origin, attempt);
+        res.page_fps = pageFps;
+        return res;
       } catch (err) {
         lastError = err;
         if (err.status === 429 || err.status === 403) break; // bị giới hạn → dừng ngay
@@ -196,6 +224,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
     }
   } finally {
     if (deadChanged && store) await store.setItem(byAuthor.key, byAuthor);
+    if (fpState) await saveFp(store, fpState).catch(() => {});
   }
   const finalError = new Error(
     lastError
@@ -636,7 +665,7 @@ function isAllowedBase(b) {
 /* Tiện ích                                                             */
 /* ------------------------------------------------------------------ */
 
-function atHome(chapterId) {
+export function atHome(chapterId) {
   return api(`/at-home/server/${chapterId}`);
 }
 
@@ -679,4 +708,43 @@ export function isUuid(s) {
 
 export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/* ------------------------------------------------------------------ */
+/* Quét trước trang credit của 1 bộ (chạy nền sau khi TRMNL đã nhận dữ liệu) */
+/* ------------------------------------------------------------------ */
+export async function scanRecurring(mangaId, mangaTitle, o, store) {
+  if (!mangaId || !store) return;
+  const key = `fpscan:${mangaId}`;
+  const last = await store.getItem(key);
+  if (last && Date.now() - last < 7 * 24 * 3600e3) return; // quét lại mỗi tuần
+  await store.setItem(key, Date.now());
+  let list = [];
+  try {
+    list = usableChapters((await chapterFeed(mangaId, o, 100, 0)).data || [], o).filter((c) => (c.attributes.pages || 0) >= 3);
+  } catch (_) {
+    return;
+  }
+  // 5 chương ngẫu nhiên, khác số chương
+  const picked = [];
+  const nums = new Set();
+  while (list.length && picked.length < 5) {
+    const c = list.splice(Math.floor(Math.random() * list.length), 1)[0];
+    if (nums.has(String(c.attributes.chapter))) continue;
+    nums.add(String(c.attributes.chapter));
+    picked.push(c);
+  }
+  const fp = await loadFp(store);
+  for (const c of picked) {
+    try {
+      await sleep(300);
+      const home = await atHome(c.id);
+      const n = (home.chapter.dataSaver || []).length;
+      for (const k of [...new Set([0, n - 2, n - 1])].filter((k) => k >= 0)) {
+        const h = await pageFingerprint(home, k);
+        learnPage(fp, h, c.id, c.attributes.chapter, `${mangaTitle} · ${chapterLabel(c.attributes)} · p.${k + 1}`);
+      }
+    } catch (_) {}
+  }
+  await saveFp(store, fp);
 }
