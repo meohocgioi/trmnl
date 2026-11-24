@@ -136,7 +136,12 @@ async function handleTrmnl(url, env, ctx, store) {
   }
   await recordHistory(store, history, result); // ghi nhớ 7 ngày; nếu lặp cặp cũ → đổi sang ô khác
   await store.setItem("last_trmnl", result);
-  return json(publicResult(result));
+  // Tạm thời: kèm kết quả /lab mới nhất (trong 3 giờ) để Claude đọc qua TRMNL và tinh chỉnh thuật toán
+  const out = publicResult(result);
+  const lv = (await store.getItem("lab_votes")) || [];
+  const last = lv[lv.length - 1];
+  if (last && Date.now() - Date.parse(last.at) < 3 * 3600e3) out.lab_last = { at: last.at, code: last.code, info: last.info || {} };
+  return json(out);
 }
 
 async function handleWebhook(request, url, env, ctx, store) {
