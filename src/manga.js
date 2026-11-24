@@ -1,7 +1,7 @@
 // Lấy trang truyện từ MangaDex: chọn bộ / chương / 2 trang liên tiếp + proxy ảnh
 import { VERSION } from "./version.js";
 import { clientScriptBase64 } from "./panels-client.js";
-import { pageFingerprint, pageInfo, looksInserted, loadFp, saveFp, learnPage, isBlocked, addBlock } from "./fingerprint.js";
+import { pageFingerprint, pageInfo, looksInserted, loadFp, saveFp, learnPage, isBlocked, addBlock, markBad, isBadKey } from "./fingerprint.js";
 
 const API = "https://api.mangadex.org";
 export const UA = `TRMNL-MangaDex-Pages/${VERSION} (personal e-ink display; Cloudflare Worker)`;
@@ -115,7 +115,9 @@ function hasFreshPair(c, avoid) {
 /* Chọn 2 trang                                                         */
 /* ------------------------------------------------------------------ */
 
-export async function pickPages(o, origin, store, avoid = null, hist = null) {
+export async function pickPages(o, origin, store, avoid = null, hist = null, deadline = Date.now() + 6000) {
+  // TRMNL chỉ chờ 10 giây → hết ~7 giây thì bỏ bước soi trang credit (màn TRMNL vẫn tự lọc lần nữa)
+  const late = () => Date.now() > deadline;
   let lastError = null;
   let exhausted = false; // có chương mà mọi trang đều đã hiện trong 7 ngày
   const tried = new Set(); // chương đã thử mà không còn cặp trang mới
@@ -140,6 +142,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
 
   try {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (attempt > 1 && late()) break; // hết giờ
       if (attempt > 1) await sleep(250); // tôn trọng rate limit ~5 req/s
       try {
         let manga;
@@ -174,7 +177,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
         if (!Array.isArray(files) || files.length < 2) continue;
 
         // Chỉ chọn cặp trang chưa hiện trong 7 ngày qua
-        const seen = (k) => avoid && (avoid.has(pageKey(chapter.id, k)) || avoid.has(pageHash(home, k)));
+        const seen = (k) => (avoid && (avoid.has(pageKey(chapter.id, k)) || avoid.has(pageHash(home, k)))) || isBadKey(fpState, chapter.id, k);
         const cands = [];
         for (let k = 0; k + 1 < files.length; k++) if (!seen(k) && !seen(k + 1)) cands.push(k);
         if (!cands.length) {
@@ -190,6 +193,10 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
         for (let t = 0; t < 4 && cands.length; t++) {
           const k = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
           if (bad.has(k) || bad.has(k + 1)) continue;
+          if (late()) {
+            i = k; // hết giờ → nhận luôn (đã loại trang chặn đã biết)
+            break;
+          }
           const inf = await Promise.all([pageInfo(home, k), pageInfo(home, k + 1)]);
           const fps = inf.map((x) => (x ? x.h : null));
           const label = `${manga.title} · ${chapterLabel(ca)} · p.`;
@@ -198,8 +205,8 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
           if (fpState && looksInserted(inf[1], inf[0])) addBlock(fpState, fps[1], "auto", label + (k + 2) + " (trang chèn)");
           const b0 = fpState ? learnPage(fpState, fps[0], chapter.id, ca.chapter, label + (k + 1)) : false;
           const b1 = fpState ? learnPage(fpState, fps[1], chapter.id, ca.chapter, label + (k + 2)) : false;
-          if (b0) bad.add(k);
-          if (b1) bad.add(k + 1);
+          if (b0) { bad.add(k); markBad(fpState, chapter.id, k); }
+          if (b1) { bad.add(k + 1); markBad(fpState, chapter.id, k + 1); }
           if (!b0 && !b1) {
             i = k;
             pageFps = fps;
@@ -241,8 +248,8 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
   );
   // Đã xem hết trong 7 ngày → 1 bộ: lặp lại cặp trang CŨ NHẤT; chế độ khác: chọn lại không giới hạn
   if (exhausted && avoid && avoid.size) {
-    if (single) return leastRecentPick(single, o, origin, hist || {}, fpState);
-    return pickPages(o, origin, store, null);
+    if (single) return leastRecentPick(single, o, origin, hist || {}, fpState, deadline, store);
+    return pickPages(o, origin, store, null, null, Math.max(deadline, Date.now() + 2500));
   }
   if (single && !lastError) finalError.code = "NO_LANG";
   throw finalError;
@@ -380,12 +387,13 @@ async function randomChapter(mangaId, o, avoid = null, full = false, tried = nul
 }
 
 // Mọi cặp trang của bộ này đều đã hiện trong 7 ngày → lấy cặp đã lâu chưa hiện nhất
-async function leastRecentPick(manga, o, origin, hist, fpState = null) {
+async function leastRecentPick(manga, o, origin, hist, fpState = null, deadline = Date.now() + 7000, store = null) {
   const usable = usableChapters((await chapterFeed(manga.id, o, 500, 0)).data || [], o);
   const pairs = [];
   for (const c of usable) {
     const n = (c.attributes || {}).pages || 2;
     for (let k = 0; k + 1 < n; k++) {
+      if (isBadKey(fpState, c.id, k) || isBadKey(fpState, c.id, k + 1)) continue; // trang credit đã biết
       pairs.push({ c, k, t: Math.max(hist[pageKey(c.id, k)] || 0, hist[pageKey(c.id, k + 1)] || 0), r: Math.random() });
     }
   }
@@ -398,6 +406,14 @@ async function leastRecentPick(manga, o, origin, hist, fpState = null) {
   let fps = [];
   for (let t = 0; t < Math.min(pairs.length, 24); t++) {
     const p = pairs[t];
+    if (Date.now() > deadline - 1500) {
+      // hết giờ → lấy cặp kế tiếp chưa biết là xấu (màn TRMNL vẫn tự bỏ trang credit nếu lọt)
+      if (!badPage.has(pageKey(p.c.id, p.k)) && !badPage.has(pageKey(p.c.id, p.k + 1))) {
+        pickd = p;
+        break;
+      }
+      continue;
+    }
     if (badPage.has(pageKey(p.c.id, p.k)) || badPage.has(pageKey(p.c.id, p.k + 1))) continue;
     let home = homes.get(p.c.id);
     if (!home) {
@@ -417,8 +433,8 @@ async function leastRecentPick(manga, o, origin, hist, fpState = null) {
     const b1 = isBlocked(fpState, f[1]) || looksInserted(inf[1], inf[0]);
     if (looksInserted(inf[0], inf[1])) addBlock(fpState, f[0], "auto", `${manga.title} · p.${p.k + 1} (trang chèn)`);
     if (looksInserted(inf[1], inf[0])) addBlock(fpState, f[1], "auto", `${manga.title} · p.${p.k + 2} (trang chèn)`);
-    if (b0) badPage.add(pageKey(p.c.id, p.k));
-    if (b1) badPage.add(pageKey(p.c.id, p.k + 1));
+    if (b0) { badPage.add(pageKey(p.c.id, p.k)); markBad(fpState, p.c.id, p.k); }
+    if (b1) { badPage.add(pageKey(p.c.id, p.k + 1)); markBad(fpState, p.c.id, p.k + 1); }
     if (!b0 && !b1) {
       pickd = p;
       fps = f;
@@ -434,6 +450,7 @@ async function leastRecentPick(manga, o, origin, hist, fpState = null) {
   const r = buildResult(meta, home, i, o, origin, 0);
   r.repeat = true; // đánh dấu: lặp lại cặp cũ nhất
   r.page_fps = fps;
+  if (fpState && store) await saveFp(store, fpState).catch(() => {});
   return r;
 }
 
@@ -785,7 +802,7 @@ export async function scanRecurring(mangaId, mangaTitle, o, store) {
         const inf = await pageInfo(home, k);
         const label = `${mangaTitle} · ${chapterLabel(c.attributes)} · p.${k + 1}`;
         if (looksInserted(inf, ref)) addBlock(fp, inf.h, "auto", label + " (trang chèn)");
-        learnPage(fp, inf && inf.h, c.id, c.attributes.chapter, label);
+        if (learnPage(fp, inf && inf.h, c.id, c.attributes.chapter, label)) markBad(fp, c.id, k);
       }
     } catch (_) {}
   }

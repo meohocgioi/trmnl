@@ -99,11 +99,12 @@ export function looksInserted(a, ref) {
 /* ---------- Bộ nhớ: trang đã thấy + danh sách chặn ---------- */
 
 export async function loadFp(store) {
-  const [seen, block] = await Promise.all([store.getItem("fp_seen"), store.getItem("fp_block")]);
+  const [seen, block, bad] = await Promise.all([store.getItem("fp_seen"), store.getItem("fp_block"), store.getItem("fp_badkeys")]);
   const now = Date.now();
   return {
     seen: (seen || []).filter((e) => now - e.t < SEEN_TTL).slice(-SEEN_MAX),
     block: block || [],
+    bad: bad || {}, // "chapterId:trang" đã biết là trang chặn → khỏi tải lại ảnh
     dirty: false,
   };
 }
@@ -111,7 +112,9 @@ export async function loadFp(store) {
 export async function saveFp(store, fp) {
   if (!fp.dirty) return;
   fp.dirty = false;
-  await Promise.all([store.setItem("fp_seen", fp.seen.slice(-SEEN_MAX)), store.setItem("fp_block", fp.block)]);
+  const keys = Object.keys(fp.bad);
+  if (keys.length > 4000) for (const k of keys.slice(0, keys.length - 4000)) delete fp.bad[k];
+  await Promise.all([store.setItem("fp_seen", fp.seen.slice(-SEEN_MAX)), store.setItem("fp_block", fp.block), store.setItem("fp_badkeys", fp.bad)]);
 }
 
 export function isBlocked(fp, h) {
@@ -147,4 +150,13 @@ export function learnPage(fp, h, chapterId, chapterNo, label) {
     fp.dirty = true;
   }
   return false;
+}
+
+export function markBad(fp, chapterId, idx) {
+  if (!fp) return;
+  fp.bad[`${chapterId}:${idx}`] = 1;
+  fp.dirty = true;
+}
+export function isBadKey(fp, chapterId, idx) {
+  return !!(fp && fp.bad[`${chapterId}:${idx}`]);
 }
