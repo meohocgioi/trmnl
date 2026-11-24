@@ -28,6 +28,7 @@ export const COMMANDS = [
   ["random", "Ngẫu nhiên toàn bộ MangaDex"],
   ["settings", "Xem & chỉnh cài đặt"],
   ["url", "Link dán vào TRMNL + link xem thử"],
+  ["lab", "So sánh cách chọn ô truyện (10 ví dụ)"],
   ["update", "Cập nhật bot / kiểm tra bản mới"],
   ["version", "Phiên bản & change log"],
   ["help", "Danh sách lệnh"],
@@ -146,6 +147,19 @@ async function onMessage(msg, env) {
         chatId,
         settingsText(settings) + "\n\n" + hint(`🔁 Không lặp lại trong 7 ngày · đã ghi nhớ ${avoid.size} trang đã hiện`),
         settingsKeyboard(settings)
+      );
+    }
+    case "lab": {
+      if (!config.accessKey) return send(token, chatId, card("⚠️", "Chưa có mã khoá", "Gõ /url trước để tạo link."));
+      return send(
+        token,
+        chatId,
+        card(
+          "🧪",
+          "So sánh cách chọn ô truyện",
+          quote(["Mở link, xem 10 ví dụ và chọn cách hợp nhất cho mỗi ví dụ:", `${esc(env.origin)}/lab?key=${config.accessKey}`]),
+          hint("Trang tải lần lượt từng ví dụ (~5–10 giây/ví dụ). Xong bấm 📨 Gửi qua bot.")
+        )
       );
     }
     case "url": {

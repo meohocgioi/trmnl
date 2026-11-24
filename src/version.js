@@ -1,9 +1,18 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.5.3";
+export const VERSION = "1.6.0";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.6.0",
+    date: "2026-11-24",
+    changes: [
+      "✂️ Sửa lỗi cắt ô sai (vd. Crayon Shin Chan ra 20 ô, cắt ngang thân nhân vật): chỉ bóc khung khi cả trang được đóng khung kín, khe bị nét vẽ chạy xuyên qua không còn bị coi là khe giữa 2 ô",
+      "🚫 Bỏ qua ô gần như trống và dải mỏng",
+      "🧪 Lệnh mới /lab: xem 10 ví dụ, chọn cách hiện ô bạn thích (A–D) để tinh chỉnh thuật toán",
+    ],
+  },
   {
     version: "1.5.3",
     date: "2026-11-23",

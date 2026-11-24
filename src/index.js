@@ -15,6 +15,8 @@ import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid,
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
 import { buildClientScript } from "./panels-client.js";
+import { labPage } from "./lab.js";
+import { AUTO_AUTHOR } from "./manga.js";
 
 export class Store extends DurableObject {
   async getItem(key) {
@@ -56,6 +58,10 @@ export default {
         }
         case "/setup":
           return await handleSetup(request, url, env, store);
+        case "/lab":
+        case "/lab/pick":
+        case "/lab/vote":
+          return await handleLab(request, url, env, store);
         case "/tg":
           return await handleWebhook(request, url, env, ctx, store);
         case "/panels.js":
@@ -224,6 +230,50 @@ async function ensureAccessKey(store) {
   config.accessKey = randomHex(12);
   await store.setItem("config", config);
   return config.accessKey;
+}
+
+// Trang so sánh cách chọn ô (cần mã khoá)
+async function handleLab(request, url, env, store) {
+  const config = (await store.getItem("config")) || {};
+  if (!config.accessKey || url.searchParams.get("key") !== config.accessKey) {
+    return url.pathname === "/lab" ? html("<p>Link thiếu mã khoá. Gõ /lab cho bot để lấy link.</p>", 403) : json({ ok: false, error: "forbidden" }, 403);
+  }
+  if (url.pathname === "/lab") return html(labPage(config.accessKey, 10));
+  if (url.pathname === "/lab/pick") {
+    const i = Number.parseInt(url.searchParams.get("i") || "0", 10) || 0;
+    const settings = (await store.getItem("settings")) || {};
+    let s = settings;
+    // 6 ví dụ đầu: nguồn đang chọn · 4 ví dụ cuối: Junji Ito (nếu nguồn đang chọn chưa phải Junji Ito)
+    const isIto = !settings.mangaId && !settings.authorId && (settings.author || AUTO_AUTHOR) === AUTO_AUTHOR;
+    if (i >= 6 && !isIto) {
+      s = { ...settings, author: AUTO_AUTHOR };
+      for (const k of ["mangaId", "mangaTitle", "mangaLang", "authorId"]) delete s[k];
+    }
+    try {
+      const r = await pickPages(mergeOptions(s), url.origin, store);
+      const { panels_js_b64, ...rest } = publicResult(r);
+      return json(rest);
+    } catch (e) {
+      return json({ ok: false, error: e.message });
+    }
+  }
+  // /lab/vote
+  if (request.method !== "POST") return json({ ok: false, error: "POST" }, 405);
+  const body = await request.json().catch(() => ({}));
+  const entry = { at: new Date().toISOString(), code: String(body.code || "").slice(0, 400), note: String(body.note || "").slice(0, 500), votes: body.votes || {} };
+  const all = (await store.getItem("lab_votes")) || [];
+  all.push(entry);
+  await store.setItem("lab_votes", all.slice(-20));
+  const token = await botToken(env, store);
+  if (token && config.ownerId) {
+    const esc = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+    await tg(token, "sendMessage", {
+      chat_id: config.ownerId,
+      parse_mode: "HTML",
+      text: `🧪 <b>Kết quả chọn ô truyện</b>\n\n<code>LAB ${esc(entry.code || "(trống)")}${entry.note ? " | " + esc(entry.note) : ""}</code>\n\n<i>Chạm để copy rồi dán cho Claude.</i>`,
+    }).catch(() => {});
+  }
+  return json({ ok: true });
 }
 
 async function keyOk(url, store) {
