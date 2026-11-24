@@ -748,3 +748,13 @@ export async function scanRecurring(mangaId, mangaTitle, o, store) {
   }
   await saveFp(store, fp);
 }
+
+// Gỡ lỗi: lấy link ảnh (qua proxy /img) của 1 chương theo tập/số chương — dữ liệu công khai của MangaDex
+export async function debugChapter(mangaId, vol, chap, lang, origin) {
+  const res = await api(`/manga/${mangaId}/feed`, [["translatedLanguage[]", lang || "en"], ["volume[]", vol], ["limit", "100"]]);
+  const c = (res.data || []).find((x) => String(x.attributes.chapter) === String(chap));
+  if (!c) return { ok: false, error: "không thấy chương" };
+  const home = await atHome(c.id);
+  const img = (q, list) => list.map((f, i) => `${origin}/img?` + new URLSearchParams({ ch: c.id, p: String(i), q, b: home.baseUrl, h: home.chapter.hash, f }).toString());
+  return { ok: true, chapter_id: c.id, data: img("data", home.chapter.data), saver: img("data-saver", home.chapter.dataSaver) };
+}

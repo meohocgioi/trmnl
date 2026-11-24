@@ -11,7 +11,7 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { VERSION } from "./version.js";
-import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory, scanRecurring } from "./manga.js";
+import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory, scanRecurring, debugChapter } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
 import { buildClientScript } from "./panels-client.js";
@@ -58,6 +58,12 @@ export default {
         }
         case "/setup":
           return await handleSetup(request, url, env, store);
+        case "/dbg/chapter": {
+          // Gỡ lỗi cắt ô: /dbg/chapter?m=<mangaId>&v=<tập>&c=<số chương> → link ảnh các trang
+          const m = url.searchParams.get("m") || "";
+          if (!isUuid(m)) return json({ ok: false, error: "m?" }, 400);
+          return json(await debugChapter(m, url.searchParams.get("v") || "", url.searchParams.get("c") || "", url.searchParams.get("lang") || "en", url.origin));
+        }
         case "/lab":
         case "/lab/pick":
         case "/lab/vote":
