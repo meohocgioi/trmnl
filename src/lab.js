@@ -6,7 +6,7 @@
 import { detectPanels, detectPanelsV1, choosePanels, layoutPair, layoutSingle } from "./panels-client.js";
 
 export const LAB_STRATS = [
-  ["E", "Mới (A+B)", "Đang dùng: phủ kín màn hình như A, ưu tiên ô nhiều nét vẽ như B"],
+  ["E", "Đang dùng", "Học từ lựa chọn của bạn: 1 ô to ưu tiên, trừ khi 2 ô nhiều nội dung hơn rõ rệt"],
   ["A", "Ô to nhất", "Ưu tiên 1 ô phủ kín màn hình, không có thì 2 ô"],
   ["B", "Nhiều nét vẽ", "Ưu tiên ô có nhiều nội dung, vẫn phải vừa màn hình"],
 ];
@@ -289,7 +289,7 @@ export function labPage(key, n = 10) {
 </style></head><body>
 <header>
   <h1>Chọn cách hiện ô truyện cho TRMNL</h1>
-  <p><b>E</b> là thuật toán mới làm từ lựa chọn lần trước của bạn (đang chạy trên TRMNL). Nếu E đúng ý, chọn E.</p>
+  <p><b>E</b> là thuật toán đang chạy trên TRMNL, học từ các lần bạn chọn trước. Nếu E đúng ý, chọn E.</p>
   <p>${n} ví dụ lấy từ nguồn truyện bạn đang chọn (và vài trang Junji Ito). Mỗi ví dụ có 2 trang truyện với các ô máy tìm được (khung đỏ), rồi ${LAB_STRATS.length} cách chọn ô hiện đúng như màn hình TRMNL 800×480.</p>
   <p>👉 Với mỗi ví dụ, chạm vào cách bạn thấy <b>hợp nhất</b> (hoặc "Không cách nào ổn"). Nếu khung đỏ cắt sai ô, tích "Khung đỏ cắt ô sai". Xong bấm <b>Gửi qua bot</b> hoặc <b>Copy</b> rồi dán cho Claude.</p>
 </header>

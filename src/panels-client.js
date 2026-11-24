@@ -337,6 +337,7 @@ export function detectPanels(gray, w, h, rtl) {
 // Chọn 1 ô hoặc 2 ô liền nhau để hiện. pages: [{ panels:[{x,y,w,h,ink}], aspect }]
 // strategy: "E" (mặc định, từ lựa chọn của bạn ở /lab: A×5 + B×5) · "A" ô to nhất · "B" nhiều nét vẽ
 //           "C" luôn 2 ô liền nhau · "D" cách cũ (không lọc)
+// (E được tinh chỉnh từ các lượt bình chọn ở trang /lab)
 export function choosePanels(pages, strategy, W, H, gap, seed, viewMode) {
   const all = [];
   pages.forEach((pg, k) => pg.panels.forEach((r) => all.push({ k, r, aspectPage: pg.aspect })));
@@ -366,11 +367,12 @@ export function choosePanels(pages, strategy, W, H, gap, seed, viewMode) {
   let chosen;
   const content = (c) => Math.sqrt(Math.min(1, c.ink / 0.08)); // nhiều nét vẽ → điểm cao (bão hoà ở 8%)
   if (strategy === "E") {
-    // Kết hợp A + B: phải phủ kín màn hình (≥ 72%) như A, trong số đó ưu tiên ô nhiều nội dung như B;
-    // 1 ô to được cộng nhẹ 10% (A hay thắng khi có 1 ô đủ to)
+    // Học từ 2 lượt /lab của bạn (khớp 6/7 ví dụ có lựa chọn khác nhau):
+    //  điểm = độ phủ màn hình × mật độ nét vẽ (tối đa 45%, tránh ô gần như đen kịt) × 1.3 nếu chỉ 1 ô.
+    //  → 1 ô to được ưu tiên, trừ khi 2 ô liền nhau có nhiều nội dung hơn rõ rệt (≥ 30%).
     const good = cands.filter((c) => c.L.fill >= GOOD);
     const list = good.length ? good : cands;
-    const score = (c) => c.L.fill * content(c) * (c.n === 1 ? 1.1 : 1);
+    const score = (c) => c.L.fill * Math.min(c.ink, 0.45) * (c.n === 1 ? 1.3 : 1);
     const top = score(best(list, score));
     chosen = pick(list.filter((c) => score(c) >= top * 0.9));
   } else if (strategy === "B") {
