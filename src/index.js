@@ -64,6 +64,17 @@ export default {
           if (!isUuid(m)) return json({ ok: false, error: "m?" }, 400);
           return json(await debugChapter(m, url.searchParams.get("v") || "", url.searchParams.get("c") || "", url.searchParams.get("lang") || "en", url.origin));
         }
+        case "/dbg/fp": {
+          // Gỡ lỗi chặn trang credit: số trang đã học / đã chặn (không chứa dữ liệu riêng tư)
+          const [seen, block, last] = await Promise.all([store.getItem("fp_seen"), store.getItem("fp_block"), store.getItem("last_trmnl")]);
+          const scans = [];
+          return json({
+            seen: (seen || []).length,
+            seen_sample: (seen || []).slice(-30).map((e) => ({ c: e.c.slice(0, 8), n: e.n, h: e.h.slice(0, 16) })),
+            block: (block || []).map((b) => ({ why: b.why, label: b.label, h: b.h })),
+            last: last && { title: last.manga_title, ch: last.chapter_label, p: [last.page_first, last.page_second], fps: last.page_fps, files: [last.tg_first_image, last.tg_second_image].map((u) => (u || "").split("f=")[1]) },
+          });
+        }
         case "/lab":
         case "/lab/pick":
         case "/lab/vote":
