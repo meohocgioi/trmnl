@@ -392,6 +392,49 @@ export function choosePanels(pages, strategy, W, H, gap, seed, viewMode) {
   return { i: chosen.i, n: chosen.n, L: chosen.L, items: all.slice(chosen.i, chosen.i + chosen.n), total: all.length };
 }
 
+// Dấu vân tay ảnh (giống máy chủ, src/fingerprint.js) – để màn TRMNL tự bỏ trang credit đã bị chặn
+export function dhashGray(gray, w, h) {
+  const GW = 17, GH = 16;
+  const sum = new Float64Array(GW * GH);
+  const cnt = new Float64Array(GW * GH);
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 200));
+  for (let y = 0; y < h; y += step) {
+    const gy = Math.min(GH - 1, Math.floor((y * GH) / h));
+    for (let x = 0; x < w; x += step) {
+      const gx = Math.min(GW - 1, Math.floor((x * GW) / w));
+      sum[gy * GW + gx] += gray[y * w + x];
+      cnt[gy * GW + gx]++;
+    }
+  }
+  let hex = "";
+  let nib = 0, nb = 0;
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW - 1; x++) {
+      const a = sum[y * GW + x] / (cnt[y * GW + x] || 1);
+      const b = sum[y * GW + x + 1] / (cnt[y * GW + x + 1] || 1);
+      nib = (nib << 1) | (a < b ? 1 : 0);
+      if (++nb === 4) {
+        hex += nib.toString(16);
+        nib = 0;
+        nb = 0;
+      }
+    }
+  }
+  return hex;
+}
+
+export function blockedPage(hex, list) {
+  if (!hex || !list || !list.length) return false;
+  const POP = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
+  for (const b of list) {
+    if (!b || b.length !== hex.length) continue;
+    let d = 0;
+    for (let i = 0; i < hex.length && d <= 40; i++) d += POP[parseInt(hex[i], 16) ^ parseInt(b[i], 16)];
+    if (d <= 40) return true;
+  }
+  return false;
+}
+
 export function layoutPair(a1, a2, W, H, gap) {
   const hr = Math.min(H, (W - gap) / (a1 + a2));
   const rowArea = hr * hr * (a1 + a2);
@@ -456,7 +499,12 @@ export function clientMain() {
     const px = ctx.getImageData(0, 0, AW, AH).data; // lỗi nếu ảnh bị chặn CORS
     const gray = new Uint8Array(AW * AH);
     for (let i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (px[j] * 299 + px[j + 1] * 587 + px[j + 2] * 114) / 1000;
-    const panels = detectPanels(gray, AW, AH, rtl);
+    let panels = detectPanels(gray, AW, AH, rtl);
+    // Trang credit / quảng cáo nhóm dịch đã bị chặn → bỏ hết ô của trang này, lấy ô ở trang còn lại
+    if (typeof __MDX_BLOCK !== "undefined" && blockedPage(dhashGray(gray, AW, AH), __MDX_BLOCK)) {
+      log("trang bị chặn (credit) → bỏ qua");
+      panels = [];
+    }
     debugPages.push({ gray, AW, AH, natW, natH, panels });
     return panels;
   }
@@ -515,6 +563,12 @@ export function clientMain() {
 
   function render(pages) {
     // pages: [{ panels:[...], aspect: natW/natH }]
+    // Trang chèn của nhóm dịch: nằm ngang & thấp hơn hẳn trang truyện bên cạnh → bỏ ô của trang đó
+    if (pages.length === 2) {
+      const ins = (a, b) => a.w > a.h && b.h > b.w && a.h < b.h * 0.7;
+      if (ins(pages[0], pages[1])) { log("trang 1 là trang chèn → bỏ"); pages[0].panels = []; }
+      else if (ins(pages[1], pages[0])) { log("trang 2 là trang chèn → bỏ"); pages[1].panels = []; }
+    }
     const all = [];
     pages.forEach((pg, k) => pg.panels.forEach((r) => all.push({ k, r, aspectPage: pg.aspect })));
     log("tìm thấy", all.length, "ô", pages.map((p) => p.panels.length));
@@ -586,7 +640,7 @@ export function clientMain() {
     return Promise.all(imgs.map(loaded)).then((ok) => {
       if (ok.indexOf(false) >= 0) throw new Error("ảnh không tải được / quá lâu");
       log("ảnh đã tải", imgs.map((im) => im.naturalWidth + "x" + im.naturalHeight));
-      return imgs.map((im) => ({ panels: analyze(im, im.naturalWidth, im.naturalHeight), aspect: im.naturalWidth / im.naturalHeight }));
+      return imgs.map((im) => ({ panels: analyze(im, im.naturalWidth, im.naturalHeight), aspect: im.naturalWidth / im.naturalHeight, w: im.naturalWidth, h: im.naturalHeight }));
     });
   }
 
@@ -606,7 +660,7 @@ export function clientMain() {
       })
     ).then((bms) => {
       log("bản nhẹ đã tải", bms.map((b) => b.width + "x" + b.height));
-      return bms.map((b) => ({ panels: analyze(b, b.width, b.height), aspect: b.width / b.height }));
+      return bms.map((b) => ({ panels: analyze(b, b.width, b.height), aspect: b.width / b.height, w: b.width, h: b.height }));
     });
   }
 
@@ -643,6 +697,8 @@ export function buildClientScript() {
     "var __name = function (f) { return f; };\n" +
     detectPanels.toString() + "\n" +
     choosePanels.toString() + "\n" +
+    dhashGray.toString() + "\n" +
+    blockedPage.toString() + "\n" +
     layoutPair.toString() + "\n" +
     layoutSingle.toString() + "\n" +
     clientMain.toString() + "\n" +

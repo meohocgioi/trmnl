@@ -14,7 +14,7 @@ import { VERSION } from "./version.js";
 import { mergeOptions, pickPages, publicResult, handleImage, pinChapter, isUuid, loadHistory, recordHistory, scanRecurring, debugChapter } from "./manga.js";
 import { tg, handleUpdate, notifyNewVersion, COMMANDS } from "./telegram.js";
 import { setupPage, previewPage } from "./pages.js";
-import { buildClientScript } from "./panels-client.js";
+import { buildClientScript, buildClientScriptAscii } from "./panels-client.js";
 import { labPage } from "./lab.js";
 import { AUTO_AUTHOR } from "./manga.js";
 
@@ -159,6 +159,11 @@ async function handleTrmnl(url, env, ctx, store) {
   }
   // Tạm thời: kèm kết quả /lab mới nhất (trong 3 giờ) để Claude đọc qua TRMNL và tinh chỉnh thuật toán
   const out = publicResult(result);
+  // Kèm danh sách trang đã chặn vào script → màn TRMNL tự bỏ trang credit nếu lỡ lọt vào
+  if (out && out.panels_js_b64) {
+    const blk = ((await store.getItem("fp_block")) || []).map((b) => b.h).filter(Boolean).slice(-300);
+    if (blk.length) out.panels_js_b64 = btoa("var __MDX_BLOCK = " + JSON.stringify(blk) + ";\n" + buildClientScriptAscii());
+  }
   const lv = (await store.getItem("lab_votes")) || [];
   const last = lv[lv.length - 1];
   if (last && Date.now() - Date.parse(last.at) < 3 * 3600e3) out.lab_last = { at: last.at, code: last.code, info: last.info || {} };

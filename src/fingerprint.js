@@ -58,27 +58,42 @@ export function fingerprintJpeg(bytes) {
   return dhashRGBA(img.data, img.width, img.height, 3);
 }
 
-// Dấu vân tay của 1 trang (ảnh data-saver, nhẹ). Có cache để không tải lại.
-export async function pageFingerprint(home, idx) {
+// Dấu vân tay + kích thước của 1 trang (ảnh data-saver, nhẹ). Có cache để không tải lại.
+export async function pageInfo(home, idx) {
   const file = home.chapter.dataSaver && home.chapter.dataSaver[idx];
   if (!file || !/\.jpe?g$/i.test(file)) return null; // chỉ giải mã JPEG
-  const cacheKey = new Request(`https://fp.cache/${home.chapter.hash}/${file}`);
+  const cacheKey = new Request(`https://fp.cache/v2/${home.chapter.hash}/${file}`);
   const cache = typeof caches !== "undefined" ? caches.default : null;
   if (cache) {
     const hit = await cache.match(cacheKey).catch(() => null);
-    if (hit) return (await hit.text()) || null;
+    if (hit) {
+      const [h, w, ht] = (await hit.text()).split("|");
+      if (h) return { h, w: Number(w) || 0, ht: Number(ht) || 0 };
+    }
   }
   try {
     const res = await fetch(`${home.baseUrl}/data-saver/${home.chapter.hash}/${file}`, {
       headers: { "User-Agent": "TRMNL-MangaDex-Plugin/1.0" },
     });
     if (!res.ok) return null;
-    const fp = fingerprintJpeg(new Uint8Array(await res.arrayBuffer()));
-    if (cache) await cache.put(cacheKey, new Response(fp, { headers: { "Cache-Control": "public, max-age=2592000" } })).catch(() => {});
-    return fp;
+    const img = decodeJpeg(new Uint8Array(await res.arrayBuffer()), { useTArray: true, formatAsRGBA: false, maxResolutionInMP: 12, maxMemoryUsageInMB: 64 });
+    const info = { h: dhashRGBA(img.data, img.width, img.height, 3), w: img.width, ht: img.height };
+    if (cache) await cache.put(cacheKey, new Response(`${info.h}|${info.w}|${info.ht}`, { headers: { "Cache-Control": "public, max-age=2592000" } })).catch(() => {});
+    return info;
   } catch (_) {
     return null;
   }
+}
+
+export async function pageFingerprint(home, idx) {
+  const i = await pageInfo(home, idx);
+  return i ? i.h : null;
+}
+
+// Trang chèn của nhóm dịch (credit/quảng cáo): ảnh NẰM NGANG và THẤP hơn hẳn trang truyện bên cạnh.
+// (Trang đôi thật cũng nằm ngang nhưng cao bằng trang truyện → không bị tính.)
+export function looksInserted(a, ref) {
+  return !!(a && ref && a.w > a.ht && ref.ht > ref.w && a.ht < ref.ht * 0.7);
 }
 
 /* ---------- Bộ nhớ: trang đã thấy + danh sách chặn ---------- */

@@ -1,9 +1,18 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.7.1";
+export const VERSION = "1.7.2";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.7.2",
+    date: "2026-11-24",
+    changes: [
+      "🚫 Sửa lỗi trang credit vẫn hiện: chế độ lặp lại (khi đã xem hết trang mới trong tuần) quên kiểm tra trang bị chặn",
+      "📐 Nhận thêm trang chèn của nhóm dịch theo kích thước: ảnh nằm ngang & thấp hơn hẳn trang truyện → chặn ngay lần đầu gặp",
+      "🛡 Màn TRMNL tự kiểm tra lần nữa: gặp trang đã chặn thì bỏ, lấy ô ở trang còn lại",
+    ],
+  },
   {
     version: "1.7.1",
     date: "2026-11-24",

@@ -1,7 +1,7 @@
 // Lấy trang truyện từ MangaDex: chọn bộ / chương / 2 trang liên tiếp + proxy ảnh
 import { VERSION } from "./version.js";
 import { clientScriptBase64 } from "./panels-client.js";
-import { pageFingerprint, loadFp, saveFp, learnPage } from "./fingerprint.js";
+import { pageFingerprint, pageInfo, looksInserted, loadFp, saveFp, learnPage, isBlocked, addBlock } from "./fingerprint.js";
 
 const API = "https://api.mangadex.org";
 export const UA = `TRMNL-MangaDex-Pages/${VERSION} (personal e-ink display; Cloudflare Worker)`;
@@ -190,8 +190,12 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
         for (let t = 0; t < 4 && cands.length; t++) {
           const k = cands.splice(Math.floor(Math.random() * cands.length), 1)[0];
           if (bad.has(k) || bad.has(k + 1)) continue;
-          const fps = await Promise.all([pageFingerprint(home, k), pageFingerprint(home, k + 1)]);
+          const inf = await Promise.all([pageInfo(home, k), pageInfo(home, k + 1)]);
+          const fps = inf.map((x) => (x ? x.h : null));
           const label = `${manga.title} · ${chapterLabel(ca)} · p.`;
+          // Trang ngang & thấp hơn hẳn trang bên cạnh = trang chèn của nhóm dịch → chặn luôn
+          if (fpState && looksInserted(inf[0], inf[1])) addBlock(fpState, fps[0], "auto", label + (k + 1) + " (trang chèn)");
+          if (fpState && looksInserted(inf[1], inf[0])) addBlock(fpState, fps[1], "auto", label + (k + 2) + " (trang chèn)");
           const b0 = fpState ? learnPage(fpState, fps[0], chapter.id, ca.chapter, label + (k + 1)) : false;
           const b1 = fpState ? learnPage(fpState, fps[1], chapter.id, ca.chapter, label + (k + 2)) : false;
           if (b0) bad.add(k);
@@ -237,7 +241,7 @@ export async function pickPages(o, origin, store, avoid = null, hist = null) {
   );
   // Đã xem hết trong 7 ngày → 1 bộ: lặp lại cặp trang CŨ NHẤT; chế độ khác: chọn lại không giới hạn
   if (exhausted && avoid && avoid.size) {
-    if (single) return leastRecentPick(single, o, origin, hist || {});
+    if (single) return leastRecentPick(single, o, origin, hist || {}, fpState);
     return pickPages(o, origin, store, null);
   }
   if (single && !lastError) finalError.code = "NO_LANG";
@@ -376,24 +380,60 @@ async function randomChapter(mangaId, o, avoid = null, full = false, tried = nul
 }
 
 // Mọi cặp trang của bộ này đều đã hiện trong 7 ngày → lấy cặp đã lâu chưa hiện nhất
-async function leastRecentPick(manga, o, origin, hist) {
+async function leastRecentPick(manga, o, origin, hist, fpState = null) {
   const usable = usableChapters((await chapterFeed(manga.id, o, 500, 0)).data || [], o);
-  let best = null;
+  const pairs = [];
   for (const c of usable) {
     const n = (c.attributes || {}).pages || 2;
     for (let k = 0; k + 1 < n; k++) {
-      const t = Math.max(hist[pageKey(c.id, k)] || 0, hist[pageKey(c.id, k + 1)] || 0);
-      if (!best || t < best.t) best = { c, k, t };
+      pairs.push({ c, k, t: Math.max(hist[pageKey(c.id, k)] || 0, hist[pageKey(c.id, k + 1)] || 0), r: Math.random() });
     }
   }
-  if (!best) throw new Error(`"${manga.title}" chưa có chương ${o.lang.toUpperCase()} đọc được trên MangaDex`);
-  const home = await atHome(best.c.id);
+  if (!pairs.length) throw new Error(`"${manga.title}" chưa có chương ${o.lang.toUpperCase()} đọc được trên MangaDex`);
+  pairs.sort((a, b) => a.t - b.t || a.r - b.r); // cũ nhất trước, cùng mốc thì ngẫu nhiên
+  // Bỏ cặp có trang credit / quảng cáo đã chặn (trước đây chế độ lặp lại quên kiểm tra → credit hiện liên tục)
+  const homes = new Map();
+  const badPage = new Set();
+  let pickd = null;
+  let fps = [];
+  for (let t = 0; t < Math.min(pairs.length, 24); t++) {
+    const p = pairs[t];
+    if (badPage.has(pageKey(p.c.id, p.k)) || badPage.has(pageKey(p.c.id, p.k + 1))) continue;
+    let home = homes.get(p.c.id);
+    if (!home) {
+      if (homes.size) await sleep(250);
+      home = await atHome(p.c.id);
+      homes.set(p.c.id, home);
+    }
+    const n = (home.chapter.dataSaver || []).length;
+    if (p.k + 1 >= n) continue;
+    if (!fpState) {
+      pickd = p;
+      break;
+    }
+    const inf = await Promise.all([pageInfo(home, p.k), pageInfo(home, p.k + 1)]);
+    const f = inf.map((x) => (x ? x.h : null));
+    const b0 = isBlocked(fpState, f[0]) || looksInserted(inf[0], inf[1]);
+    const b1 = isBlocked(fpState, f[1]) || looksInserted(inf[1], inf[0]);
+    if (looksInserted(inf[0], inf[1])) addBlock(fpState, f[0], "auto", `${manga.title} · p.${p.k + 1} (trang chèn)`);
+    if (looksInserted(inf[1], inf[0])) addBlock(fpState, f[1], "auto", `${manga.title} · p.${p.k + 2} (trang chèn)`);
+    if (b0) badPage.add(pageKey(p.c.id, p.k));
+    if (b1) badPage.add(pageKey(p.c.id, p.k + 1));
+    if (!b0 && !b1) {
+      pickd = p;
+      fps = f;
+      break;
+    }
+  }
+  if (!pickd) pickd = pairs.find((p) => !badPage.has(pageKey(p.c.id, p.k)) && !badPage.has(pageKey(p.c.id, p.k + 1))) || pairs[0];
+  const home = homes.get(pickd.c.id) || (await atHome(pickd.c.id));
   const files = o.quality === "data" ? home.chapter.data : home.chapter.dataSaver;
-  const i = Math.max(0, Math.min(best.k, files.length - 2));
-  const ca = best.c.attributes || {};
-  const meta = { manga, chapter: { id: best.c.id, label: chapterLabel(ca), title: ca.title || "", group: groupName(best.c) }, author: "", authorTitles: 0 };
+  const i = Math.max(0, Math.min(pickd.k, files.length - 2));
+  const ca = pickd.c.attributes || {};
+  const meta = { manga, chapter: { id: pickd.c.id, label: chapterLabel(ca), title: ca.title || "", group: groupName(pickd.c) }, author: "", authorTitles: 0 };
   const r = buildResult(meta, home, i, o, origin, 0);
   r.repeat = true; // đánh dấu: lặp lại cặp cũ nhất
+  r.page_fps = fps;
   return r;
 }
 
@@ -715,7 +755,7 @@ export function sleep(ms) {
 /* ------------------------------------------------------------------ */
 export async function scanRecurring(mangaId, mangaTitle, o, store) {
   if (!mangaId || !store) return;
-  const key = `fpscan:${mangaId}`;
+  const key = `fpscan2:${mangaId}`; // v2: thêm quy tắc trang chèn (ngang & thấp)
   const last = await store.getItem(key);
   if (last && Date.now() - last < 7 * 24 * 3600e3) return; // quét lại mỗi tuần
   await store.setItem(key, Date.now());
@@ -725,10 +765,10 @@ export async function scanRecurring(mangaId, mangaTitle, o, store) {
   } catch (_) {
     return;
   }
-  // 5 chương ngẫu nhiên, khác số chương
+  // 8 chương ngẫu nhiên, khác số chương
   const picked = [];
   const nums = new Set();
-  while (list.length && picked.length < 5) {
+  while (list.length && picked.length < 8) {
     const c = list.splice(Math.floor(Math.random() * list.length), 1)[0];
     if (nums.has(String(c.attributes.chapter))) continue;
     nums.add(String(c.attributes.chapter));
@@ -740,9 +780,12 @@ export async function scanRecurring(mangaId, mangaTitle, o, store) {
       await sleep(300);
       const home = await atHome(c.id);
       const n = (home.chapter.dataSaver || []).length;
-      for (const k of [...new Set([0, n - 2, n - 1])].filter((k) => k >= 0)) {
-        const h = await pageFingerprint(home, k);
-        learnPage(fp, h, c.id, c.attributes.chapter, `${mangaTitle} · ${chapterLabel(c.attributes)} · p.${k + 1}`);
+      const ref = await pageInfo(home, Math.floor(n / 2)); // 1 trang truyện ở giữa chương làm mốc kích thước
+      for (const k of [...new Set([0, 1, n - 2, n - 1])].filter((k) => k >= 0 && k < n)) {
+        const inf = await pageInfo(home, k);
+        const label = `${mangaTitle} · ${chapterLabel(c.attributes)} · p.${k + 1}`;
+        if (looksInserted(inf, ref)) addBlock(fp, inf.h, "auto", label + " (trang chèn)");
+        learnPage(fp, inf && inf.h, c.id, c.attributes.chapter, label);
       }
     } catch (_) {}
   }
