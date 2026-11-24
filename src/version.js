@@ -1,14 +1,21 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.7.3";
+export const VERSION = "1.7.4";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
   {
+    version: "1.7.4",
+    date: "2026-11-25",
+    changes: [
+      "🩹 Sửa lỗi TRMNL báo \"Chưa có dữ liệu\" (máy chủ trả lời quá 10 giây): giờ cặp trang kế tiếp được chuẩn bị sẵn ở chế độ nền → TRMNL nhận ngay lập tức",
+    ],
+  },
+  {
     version: "1.7.3",
     date: "2026-11-25",
     changes: [
-      "🩹 Sửa lỗi TRMNL báo \"Chưa có dữ liệu\": bước soi trang credit chạy quá 10 giây → giờ có giới hạn thời gian (~6 giây) và nhớ sẵn trang credit đã biết để khỏi tải lại",
+      "⏱ Có giới hạn thời gian cho bước soi trang credit + nhớ sẵn trang credit đã biết để khỏi tải lại",
     ],
   },
   {

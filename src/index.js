@@ -145,18 +145,33 @@ async function handleTrmnl(url, env, ctx, store) {
     result = { ...pinned, pinned: true, generated_at: new Date().toISOString() };
     await store.deleteItem("pin_next");
   } else {
-    try {
-      result = await pickPages(mergeOptions(settings, url.searchParams), url.origin, store, history.avoid, history.hist);
-    } catch (e) {
-      return json({ ok: false, error: e.message });
+    const o = mergeOptions(settings, url.searchParams);
+    const sig = optsSig(o);
+    const queued = url.searchParams.has("nopin") ? null : await store.getItem("queued_next");
+    if (queued && queued.ok && queued.sig === sig && Date.now() - Date.parse(queued.generated_at) < 12 * 3600e3) {
+      // Đã chuẩn bị sẵn ở lượt trước → trả lời TRMNL ngay (không phải chờ MangaDex)
+      result = { ...queued, generated_at: new Date().toISOString() };
+      delete result.sig;
+      await store.deleteItem("queued_next");
+    } else {
+      try {
+        result = await pickPages(o, url.origin, store, history.avoid, history.hist);
+      } catch (e) {
+        return json({ ok: false, error: e.message });
+      }
     }
   }
   await recordHistory(store, history, result); // ghi nhớ 7 ngày; nếu lặp cặp cũ → đổi sang ô khác
   await store.setItem("last_trmnl", result);
-  // Chạy nền: quét trước trang credit của bộ đang hiện (1 lần/tuần/bộ)
-  if (result && result.ok && result.manga_id) {
-    ctx.waitUntil(scanRecurring(result.manga_id, result.manga_title, mergeOptions(settings), store).catch(() => {}));
-  }
+  // Chạy nền (TRMNL không phải chờ): 1) quét trước trang credit của bộ đang hiện (1 lần/tuần/bộ)
+  // 2) chuẩn bị sẵn cặp trang cho lần làm mới TIẾP THEO → lần sau trả lời ngay
+  const o2 = mergeOptions(settings, url.searchParams);
+  ctx.waitUntil(
+    (async () => {
+      if (result && result.ok && result.manga_id) await scanRecurring(result.manga_id, result.manga_title, o2, store).catch(() => {});
+      if (!url.searchParams.has("nopin")) await prepareNext(o2, optsSig(o2), url.origin, store).catch(() => {});
+    })()
+  );
   // Tạm thời: kèm kết quả /lab mới nhất (trong 3 giờ) để Claude đọc qua TRMNL và tinh chỉnh thuật toán
   const out = publicResult(result);
   // Kèm danh sách trang đã chặn vào script → màn TRMNL tự bỏ trang credit nếu lỡ lọt vào
@@ -305,6 +320,17 @@ async function handleLab(request, url, env, store) {
     }).catch(() => {});
   }
   return json({ ok: true });
+}
+
+// Chữ ký các tuỳ chọn ảnh hưởng tới việc chọn trang → đổi cài đặt thì bỏ cặp đã chuẩn bị
+function optsSig(o) {
+  return JSON.stringify([o.mangaId, o.authorId, o.author, o.lang, o.view, o.ratings, o.dir, o.quality, o.longStrip]);
+}
+
+async function prepareNext(o, sig, origin, store) {
+  const history = await loadHistory(store);
+  const r = await pickPages(o, origin, store, history.avoid, history.hist, Date.now() + 12000);
+  if (r && r.ok) await store.setItem("queued_next", { ...r, sig });
 }
 
 async function keyOk(url, store) {
