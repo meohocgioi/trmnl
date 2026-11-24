@@ -522,8 +522,23 @@ export function clientMain() {
       status("⚠ chỉ thấy " + all.length + " ô");
       return log("ít hơn 2 ô → giữ chế độ 2 trang");
     }
+    // Vùng vẽ: KHÔNG tin hoàn toàn kích thước khung (ảnh trang ngang/dọc có thể làm khung giãn cao hơn màn hình)
+    // → kẹp trong màn hình thật: trừ lề và thanh tiêu đề bên dưới
     const box = root.getBoundingClientRect();
-    const ch = choosePanels(pages, root.dataset.algo || "E", box.width, box.height, GAP, seed, viewMode);
+    const vw = window.innerWidth || document.documentElement.clientWidth || box.width;
+    const vh = window.innerHeight || document.documentElement.clientHeight || box.height;
+    const bar = document.querySelector(".title_bar");
+    const barH = bar ? bar.getBoundingClientRect().height : 0;
+    const mx = Math.max(0, box.left), my = Math.max(0, box.top);
+    let W = Math.min(box.width, vw - 2 * mx);
+    let H = Math.min(box.height, vh - 2 * my - barH - (barH ? 6 : 0));
+    if (!(W > 50)) W = box.width;
+    if (!(H > 50)) H = box.height;
+    if (H < box.height - 1 || W < box.width - 1) log("kẹp vùng vẽ", Math.round(box.width) + "x" + Math.round(box.height), "→", Math.round(W) + "x" + Math.round(H));
+    root.style.height = Math.floor(H) + "px";
+    root.style.flex = "none";
+    root.style.overflow = "hidden";
+    const ch = choosePanels(pages, root.dataset.algo || "E", W, H, GAP, seed, viewMode);
     const i = ch.i;
     const L = ch.L;
     const pair = ch.items;

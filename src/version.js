@@ -1,9 +1,16 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.7.0";
+export const VERSION = "1.7.1";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.7.1",
+    date: "2026-11-24",
+    changes: [
+      "🖼 Sửa lỗi ô truyện bị phóng to & cắt mất nửa (vd. trang credit nằm ngang làm khung giãn cao hơn màn hình) — vùng vẽ luôn được kẹp đúng kích thước màn hình",
+    ],
+  },
   {
     version: "1.7.0",
     date: "2026-11-24",
