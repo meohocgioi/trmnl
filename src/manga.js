@@ -751,7 +751,7 @@ export async function scanRecurring(mangaId, mangaTitle, o, store) {
 
 // Gỡ lỗi: lấy link ảnh (qua proxy /img) của 1 chương theo tập/số chương — dữ liệu công khai của MangaDex
 export async function debugChapter(mangaId, vol, chap, lang, origin) {
-  const res = await api(`/manga/${mangaId}/feed`, [["translatedLanguage[]", lang || "en"], ["volume[]", vol], ["limit", "100"]]);
+  const res = await api(`/chapter`, [["manga", mangaId], ["translatedLanguage[]", lang || "en"], ["volume[]", vol], ["chapter[]", chap], ["limit", "20"]]);
   const c = (res.data || []).find((x) => String(x.attributes.chapter) === String(chap));
   if (!c) return { ok: false, error: "không thấy chương" };
   const home = await atHome(c.id);
