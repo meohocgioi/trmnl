@@ -260,7 +260,7 @@ async function handleLab(request, url, env, store) {
   // /lab/vote
   if (request.method !== "POST") return json({ ok: false, error: "POST" }, 405);
   const body = await request.json().catch(() => ({}));
-  const entry = { at: new Date().toISOString(), code: String(body.code || "").slice(0, 400), note: String(body.note || "").slice(0, 500), votes: body.votes || {} };
+  const entry = { at: new Date().toISOString(), code: String(body.code || "").slice(0, 400), note: String(body.note || "").slice(0, 500), votes: body.votes || {}, info: body.info || {} };
   const all = (await store.getItem("lab_votes")) || [];
   all.push(entry);
   await store.setItem("lab_votes", all.slice(-20));

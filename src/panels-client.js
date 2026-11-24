@@ -335,7 +335,8 @@ export function detectPanels(gray, w, h, rtl) {
 
 // Xếp 2 ô (tỉ lệ rộng/cao a1, a2) vào khung W×H: ngang hoặc dọc, chọn cách phủ kín nhất
 // Chọn 1 ô hoặc 2 ô liền nhau để hiện. pages: [{ panels:[{x,y,w,h,ink}], aspect }]
-// strategy: "A" ô to nhất · "B" nhiều nét vẽ · "C" luôn 2 ô liền nhau · "D" cách cũ (không lọc)
+// strategy: "E" (mặc định, từ lựa chọn của bạn ở /lab: A×5 + B×5) · "A" ô to nhất · "B" nhiều nét vẽ
+//           "C" luôn 2 ô liền nhau · "D" cách cũ (không lọc)
 export function choosePanels(pages, strategy, W, H, gap, seed, viewMode) {
   const all = [];
   pages.forEach((pg, k) => pg.panels.forEach((r) => all.push({ k, r, aspectPage: pg.aspect })));
@@ -363,7 +364,16 @@ export function choosePanels(pages, strategy, W, H, gap, seed, viewMode) {
   const best = (list, f) => list.reduce((a, b) => (f(b) > f(a) ? b : a));
   const GOOD = 0.72;
   let chosen;
-  if (strategy === "B") {
+  const content = (c) => Math.sqrt(Math.min(1, c.ink / 0.08)); // nhiều nét vẽ → điểm cao (bão hoà ở 8%)
+  if (strategy === "E") {
+    // Kết hợp A + B: phải phủ kín màn hình (≥ 72%) như A, trong số đó ưu tiên ô nhiều nội dung như B;
+    // 1 ô to được cộng nhẹ 10% (A hay thắng khi có 1 ô đủ to)
+    const good = cands.filter((c) => c.L.fill >= GOOD);
+    const list = good.length ? good : cands;
+    const score = (c) => c.L.fill * content(c) * (c.n === 1 ? 1.1 : 1);
+    const top = score(best(list, score));
+    chosen = pick(list.filter((c) => score(c) >= top * 0.9));
+  } else if (strategy === "B") {
     const score = (c) => c.L.fill * Math.sqrt(Math.min(1, c.ink / 0.08));
     const top = score(best(cands, score));
     chosen = pick(cands.filter((c) => score(c) >= top * 0.85));
@@ -511,7 +521,7 @@ export function clientMain() {
       return log("ít hơn 2 ô → giữ chế độ 2 trang");
     }
     const box = root.getBoundingClientRect();
-    const ch = choosePanels(pages, root.dataset.algo || "A", box.width, box.height, GAP, seed, viewMode);
+    const ch = choosePanels(pages, root.dataset.algo || "E", box.width, box.height, GAP, seed, viewMode);
     const i = ch.i;
     const L = ch.L;
     const pair = ch.items;

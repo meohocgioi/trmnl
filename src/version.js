@@ -1,9 +1,17 @@
 // Mỗi lần cập nhật: tăng VERSION và thêm 1 mục lên ĐẦU CHANGELOG.
 // Bot sẽ tự nhắn change log mới nhất cho chủ bot sau khi Cloudflare triển khai xong.
-export const VERSION = "1.6.0";
+export const VERSION = "1.6.1";
 export const GITHUB_REPO = "meohocgioi/trmnl";
 
 export const CHANGELOG = [
+  {
+    version: "1.6.1",
+    date: "2026-11-24",
+    changes: [
+      "🧠 Thuật toán chọn ô mới (E) theo lựa chọn của bạn ở /lab: phải phủ kín màn hình, ưu tiên ô nhiều nét vẽ, 1 ô to được ưu tiên nhẹ",
+      "🧪 /lab giờ so sánh E với A và B, lưu chi tiết từng ví dụ để tinh chỉnh tiếp",
+    ],
+  },
   {
     version: "1.6.0",
     date: "2026-11-24",

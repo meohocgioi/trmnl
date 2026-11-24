@@ -6,10 +6,9 @@
 import { detectPanels, detectPanelsV1, choosePanels, layoutPair, layoutSingle } from "./panels-client.js";
 
 export const LAB_STRATS = [
+  ["E", "Mới (A+B)", "Đang dùng: phủ kín màn hình như A, ưu tiên ô nhiều nét vẽ như B"],
   ["A", "Ô to nhất", "Ưu tiên 1 ô phủ kín màn hình, không có thì 2 ô"],
   ["B", "Nhiều nét vẽ", "Ưu tiên ô có nhiều nội dung, vẫn phải vừa màn hình"],
-  ["C", "Luôn 2 ô", "Luôn ghép 2 ô liền nhau"],
-  ["D", "Cách cũ", "Thuật toán đang dùng tới hôm qua (để so sánh)"],
 ];
 
 // Chạy trong trình duyệt
@@ -20,6 +19,7 @@ function labMain() {
   const STRATS = JSON.parse(root.dataset.strats);
   const W = 784, H = 416, GAP = 8;
   const votes = {};
+  const info = {};
   const summary = document.getElementById("sum");
   const note = document.getElementById("note");
 
@@ -187,12 +187,14 @@ function labMain() {
       const grid = el("div", "grid");
       card.appendChild(grid);
       const seen = {};
+      info[i] = { t: d.manga_title, ch: d.chapter_label, p: d.page_first, n: nNew, o: {} };
       STRATS.forEach(([sk, name, desc]) => {
         const ch = choosePanels(sk === "D" ? pagesOld : pagesNew, sk, W, H, GAP, d.panel_seed, "auto");
         const sig = ch ? ch.items.map((it) => it.k + ":" + it.r.x.toFixed(3) + "," + it.r.y.toFixed(3) + "," + it.r.w.toFixed(3)).join("|") : "none";
         const same = seen[sig];
         if (!same) seen[sig] = sk;
         const lab = ch ? (ch.n === 1 ? "ô " + (ch.i + 1) : "ô " + (ch.i + 1) + "–" + (ch.i + 2)) + "/" + ch.total : "không có ô";
+        if (ch) info[i].o[sk] = { s: lab, f: Math.round(ch.L.fill * 100), k: Math.round(ch.items.reduce((a, it) => a + (it.r.ink || 0), 0) / ch.n * 1000) / 10, sameAs: same || "" };
         const box = el("label", "opt");
         box.innerHTML =
           '<div class="oh"><input type="radio" name="v' + i + '" value="' + sk + '"> <b>' + sk + " · " + esc(name) + "</b>" +
@@ -233,7 +235,7 @@ function labMain() {
       const r = await fetch("/lab/vote?key=" + encodeURIComponent(KEY), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code(), note: note.value.trim(), votes }),
+        body: JSON.stringify({ code: code(), note: note.value.trim(), votes, info }),
       });
       const d = await r.json();
       msg.textContent = d.ok ? "✅ Đã gửi qua bot Telegram" : "⚠ " + (d.error || "lỗi");
@@ -287,7 +289,8 @@ export function labPage(key, n = 10) {
 </style></head><body>
 <header>
   <h1>Chọn cách hiện ô truyện cho TRMNL</h1>
-  <p>${n} ví dụ lấy từ nguồn truyện bạn đang chọn (và vài trang Junji Ito). Mỗi ví dụ có 2 trang truyện với các ô máy tìm được (khung đỏ), rồi 4 cách chọn ô <b>A–D</b> hiện đúng như màn hình TRMNL 800×480.</p>
+  <p><b>E</b> là thuật toán mới làm từ lựa chọn lần trước của bạn (đang chạy trên TRMNL). Nếu E đúng ý, chọn E.</p>
+  <p>${n} ví dụ lấy từ nguồn truyện bạn đang chọn (và vài trang Junji Ito). Mỗi ví dụ có 2 trang truyện với các ô máy tìm được (khung đỏ), rồi ${LAB_STRATS.length} cách chọn ô hiện đúng như màn hình TRMNL 800×480.</p>
   <p>👉 Với mỗi ví dụ, chạm vào cách bạn thấy <b>hợp nhất</b> (hoặc "Không cách nào ổn"). Nếu khung đỏ cắt sai ô, tích "Khung đỏ cắt ô sai". Xong bấm <b>Gửi qua bot</b> hoặc <b>Copy</b> rồi dán cho Claude.</p>
 </header>
 <main><div id="lab" data-key="${esc(key)}" data-n="${n}" data-strats="${esc(JSON.stringify(LAB_STRATS))}"></div><div id="list"></div></main>
